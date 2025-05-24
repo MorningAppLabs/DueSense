@@ -12,7 +12,7 @@ import {
   Animated,
   SafeAreaView,
 } from "react-native";
-import { Picker } from "@react-native-picker/picker"; // Updated import
+import { Picker } from "@react-native-picker/picker";
 import { Feather } from "@expo/vector-icons";
 import { useNavigation } from "@react-navigation/native";
 import { NativeStackNavigationProp } from "@react-navigation/native-stack";
@@ -20,6 +20,7 @@ import { useStore } from "../store/store";
 import moment from "moment";
 import * as Crypto from "expo-crypto";
 import { Card, Repayment, Transaction } from "../types/types";
+import { useSafeAreaInsets } from "react-native-safe-area-context"; // Added for notch handling
 
 const { width } = Dimensions.get("window");
 
@@ -43,6 +44,7 @@ const RepayToCardScreen: React.FC = () => {
     billingCycleStart?: string;
   }>(null);
   const [deleteId, setDeleteId] = useState<string | null>(null);
+  const insets = useSafeAreaInsets(); // Get safe area insets for notch/status bar
 
   // Animation setup using Animated
   const scale = useRef(new Animated.Value(1)).current;
@@ -317,7 +319,7 @@ const RepayToCardScreen: React.FC = () => {
   );
 
   return (
-    <SafeAreaView style={styles.safeContainer}>
+    <SafeAreaView style={[styles.safeContainer, { paddingTop: insets.top }]}>
       <View style={styles.container}>
         <Text style={styles.header}>Repay to Card</Text>
         <View style={styles.pickerContainer}>

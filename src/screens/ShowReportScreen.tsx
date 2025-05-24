@@ -21,6 +21,7 @@ import {
   scheduleBillAndEmiReminder,
   cancelNotificationById,
   scheduleOwedMoneyReminder,
+  scheduleGeneralOwedMoneyReminder, // Added for general owed-money reminder
 } from "../utils/notifications";
 
 const { width } = Dimensions.get("window");
@@ -35,7 +36,7 @@ const ShowReportScreen: React.FC = () => {
   );
   const [deleteId, setDeleteId] = useState<string | null>(null);
 
-  // Schedule dueDate and billEmi reminders when cardId or billingCycle changes
+  // Schedule dueDate, billEmi, and general owedMoney reminders when cardId or billingCycle changes
   useEffect(() => {
     if (!cardId) return;
 
@@ -58,8 +59,8 @@ const ShowReportScreen: React.FC = () => {
         end = moment(endDate, "YYYY-MM-DD");
       }
 
-      // Due Date Reminder (10 days after cycle end)
-      const dueDate = moment(end).add(10, "days").toDate();
+      // Due Date Reminder (on cycle end date)
+      const dueDate = end.toDate(); // Changed from moment(end).add(10, "days").toDate()
       const dueDateKey = `dueDate_${cardId}_${dueDate.toISOString()}`;
       if (!notificationIds[dueDateKey]) {
         const identifier = await scheduleDueDateReminder(
@@ -74,6 +75,10 @@ const ShowReportScreen: React.FC = () => {
               [dueDateKey]: identifier,
             },
           });
+        } else {
+          console.warn(
+            `No identifier returned for due date notification: ${dueDateKey}`
+          );
         }
       }
 
@@ -93,6 +98,32 @@ const ShowReportScreen: React.FC = () => {
               [billEmiKey]: identifier,
             },
           });
+        } else {
+          console.warn(
+            `No identifier returned for bill/EMI notification: ${billEmiKey}`
+          );
+        }
+      }
+
+      // General Owed-Money Reminder (10 days after cycle end)
+      const owedDate = moment(end).add(10, "days").toDate();
+      const owedKey = `generalOwedMoney_${owedDate.toISOString()}`;
+      if (!notificationIds[owedKey]) {
+        const identifier = await scheduleGeneralOwedMoneyReminder(
+          owedDate,
+          settings.notificationTimes.owedMoney
+        );
+        if (identifier) {
+          useStore.getState().setState({
+            notificationIds: {
+              ...notificationIds,
+              [owedKey]: identifier,
+            },
+          });
+        } else {
+          console.warn(
+            `No identifier returned for general owed money notification: ${owedKey}`
+          );
         }
       }
     };
@@ -141,7 +172,7 @@ const ShowReportScreen: React.FC = () => {
     const card = cards.find((c: Card) => c.id === cardId);
     if (!card) return [{ label: "Current", value: "current" }];
 
-    // Get current billing cycle (for today, May 24, 2025)
+    // Get current billing cycle (for today)
     const today = moment();
     const currentCycle = getBillingCycleDates(card, today.format("YYYY-MM-DD"));
     const currentLabel = `Current (${currentCycle.start.format(

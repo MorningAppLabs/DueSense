@@ -9,8 +9,9 @@ import {
   SafeAreaView,
   Platform,
   Modal,
+  ScrollView, // Added for scrolling
 } from "react-native";
-import { Picker } from "@react-native-picker/picker"; // Updated import
+import { Picker } from "@react-native-picker/picker";
 import { Feather } from "@expo/vector-icons";
 import { useNavigation } from "@react-navigation/native";
 import { useStore } from "../store/store";
@@ -21,6 +22,7 @@ import { Calendar } from "react-native-calendars";
 import { Card, Transaction } from "../types/types";
 import { NativeStackNavigationProp } from "@react-navigation/native-stack";
 import { BottomTabNavigationProp } from "@react-navigation/bottom-tabs";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 // Define Tab Navigator routes
 type TabParamList = {
@@ -79,6 +81,7 @@ const AddSpendingScreen: React.FC = () => {
   const [personName, setPersonName] = useState("");
   const [useCustomPerson, setUseCustomPerson] = useState(false);
   const [repaid, setRepaid] = useState(false);
+  const insets = useSafeAreaInsets(); // For notch handling
 
   // Collect unique categories from cards' cashback rules and store
   const categories = Array.from(
@@ -330,8 +333,12 @@ const AddSpendingScreen: React.FC = () => {
   }
 
   return (
-    <SafeAreaView style={styles.safeContainer}>
-      <View style={styles.container}>
+    <SafeAreaView style={[styles.safeContainer, { paddingTop: insets.top }]}>
+      <ScrollView
+        style={styles.container}
+        contentContainerStyle={{ paddingBottom: 48 }} // Added padding for bottom spacing
+        keyboardShouldPersistTaps="handled" // Ensures taps work even with keyboard open
+      >
         {step === 1 && (
           <>
             <Text style={styles.header}>Add Spending</Text>
@@ -664,7 +671,7 @@ const AddSpendingScreen: React.FC = () => {
             {step === 3 ? "Save" : "Next"}
           </Text>
         </TouchableOpacity>
-      </View>
+      </ScrollView>
     </SafeAreaView>
   );
 };
@@ -677,7 +684,6 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     padding: 16,
-    paddingTop: 20,
   },
   header: {
     fontFamily: "Inter_700Bold",

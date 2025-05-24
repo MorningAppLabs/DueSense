@@ -1,232 +1,220 @@
 import * as Notifications from "expo-notifications";
-import { Platform } from "react-native";
 import AsyncStorage from "@react-native-async-storage/async-storage";
-import { useStore } from "../store/store";
 
-// Default notification time (e.g., 9:00 AM)
 export const DEFAULT_NOTIFICATION_TIME = "09:00";
 
-// Define the structure for notification preferences
-interface NotificationPreference {
-  enabled: boolean;
-  time: string; // HH:MM format
-}
-
-// Function to store notification preference
 export const storeNotificationPreference = async (
   type: "dueDate" | "owedMoney" | "billEmi",
   enabled: boolean,
   time: string
 ) => {
   try {
-    const preference: NotificationPreference = { enabled, time };
+    const preference = { enabled, time };
     await AsyncStorage.setItem(
-      `notification_preference_${type}`,
+      `notification_${type}`,
       JSON.stringify(preference)
     );
+    console.log(`Stored ${type} notification preference:`, preference);
   } catch (error) {
-    console.error("Failed to store notification preference:", error);
+    console.error(`Failed to store ${type} notification preference:`, error);
   }
 };
 
-// Function to retrieve notification preference
 export const getNotificationPreference = async (
   type: "dueDate" | "owedMoney" | "billEmi"
-): Promise<NotificationPreference | null> => {
-  try {
-    const preferenceString = await AsyncStorage.getItem(
-      `notification_preference_${type}`
-    );
-    if (preferenceString) {
-      return JSON.parse(preferenceString);
-    }
-    return null;
-  } catch (error) {
-    console.error("Failed to retrieve notification preference:", error);
-    return null;
-  }
-};
-
-// Request notification permissions
-export const requestPermissions = async () => {
-  const { status } = await Notifications.requestPermissionsAsync();
-  if (status !== "granted") {
-    return false;
-  }
-  if (Platform.OS === "android") {
-    await Notifications.setNotificationChannelAsync("default", {
-      name: "default",
-      importance: Notifications.AndroidImportance.MAX,
-      vibrationPattern: [0, 250, 250, 250],
-      lightColor: "#FF231F7C",
-    });
-  }
-  return true;
-};
-
-// Schedule an event-based notification
-const scheduleEventNotification = async (
-  title: string,
-  body: string,
-  date: Date // The specific date and time for the notification
 ) => {
-  const hasPermission = await requestPermissions();
-  if (!hasPermission) {
-    console.warn(
-      "Notification permissions not granted. Cannot schedule notification."
-    );
-    return null; // Return null if permissions are not granted
-  }
-
   try {
-    // Use CalendarTriggerInput to specify the exact date and time
-    const trigger: Notifications.CalendarTriggerInput = {
-      type: Notifications.SchedulableTriggerInputTypes.CALENDAR, // Fixed type property
-      year: date.getFullYear(),
-      month: date.getMonth() + 1, // Month is 0-indexed in Date object, 1-indexed in CalendarTriggerInput
-      day: date.getDate(),
-      hour: date.getHours(),
-      minute: date.getMinutes(),
-      second: date.getSeconds(),
-      repeats: false, // One-time notification
-    };
-
-    const identifier = await Notifications.scheduleNotificationAsync({
-      content: {
-        title,
-        body,
-        sound: "default",
-      },
-      trigger,
-    });
-
-    console.log(`Scheduled notification with identifier: ${identifier}`);
-    return identifier; // Return the identifier
+    const value = await AsyncStorage.getItem(`notification_${type}`);
+    return value ? JSON.parse(value) : null;
   } catch (error) {
-    console.error("Failed to schedule event notification:", error);
+    console.error(`Failed to get ${type} notification preference:`, error);
     return null;
   }
 };
 
-// Schedule Due Date Reminder
 export const scheduleDueDateReminder = async (
   cardName: string,
   dueDate: Date,
-  notificationTime: string // HH:MM format from settings
+  time: string
 ) => {
-  const preference = await getNotificationPreference("dueDate");
-  if (!preference || !preference.enabled) {
-    console.log("Due Date Reminder is disabled in settings.");
-    return null; // Don't schedule if disabled
-  }
-
-  const [hour, minute] = notificationTime.split(":").map(Number);
+  const [hour, minute] = time.split(":").map(Number);
   const scheduleDate = new Date(dueDate);
-  scheduleDate.setHours(hour, minute, 0, 0); // Set the time based on user preference
-
-  // Ensure the scheduled date is in the future
-  if (scheduleDate <= new Date()) {
-    console.log(
-      "Due date for notification is in the past or present. Not scheduling."
-    );
-    return null;
-  }
-
-  const title = `Due Sense: Bill Due Soon for ${cardName}`;
-  const body = `Your bill for ${cardName} is due on ${dueDate.toLocaleDateString()}.`; // Customize body
-
-  return scheduleEventNotification(title, body, scheduleDate);
-};
-
-// Schedule Owed Money Reminder
-export const scheduleOwedMoneyReminder = async (
-  personName: string,
-  owedAmount: number,
-  transactionDate: Date, // Date of the transaction
-  transactionId: string, // ID to track the notification
-  notificationTime: string // HH:MM format from settings
-) => {
-  const preference = await getNotificationPreference("owedMoney");
-  if (!preference || !preference.enabled) {
-    console.log("Owed Money Reminder is disabled in settings.");
-    return null; // Don't schedule if disabled
-  }
-
-  // Schedule 10 days after the transaction date
-  const reminderDate = new Date(transactionDate);
-  reminderDate.setDate(transactionDate.getDate() + 10); // Adjust as needed
-
-  const [hour, minute] = notificationTime.split(":").map(Number);
-  const scheduleDate = new Date(reminderDate);
   scheduleDate.setHours(hour, minute, 0, 0);
 
-  // Ensure the scheduled date is in the future
-  if (scheduleDate <= new Date()) {
-    console.log(
-      "Owed money reminder date is in the past or present. Not scheduling."
+  const now = new Date();
+  if (scheduleDate <= now) {
+    console.warn(
+      `Due date ${scheduleDate.toISOString()} is in the past. Skipping notification.`
     );
     return null;
   }
 
-  const title = `Due Sense: Owed Money Reminder for ${personName}`;
-  const body = `Remember to collect ${owedAmount} from ${personName}.`; // Customize body
+  const trigger = {
+    type: "timeInterval",
+    seconds: Math.floor((scheduleDate.getTime() - now.getTime()) / 1000),
+    repeats: false,
+  } as Notifications.TimeIntervalTriggerInput;
 
-  const identifier = await scheduleEventNotification(title, body, scheduleDate);
-  if (identifier) {
-    // Store the notification ID
-    useStore.getState().setState({
-      notificationIds: {
-        ...useStore.getState().notificationIds,
-        [`owedMoney_${transactionId}`]: identifier,
+  try {
+    const identifier = await Notifications.scheduleNotificationAsync({
+      content: {
+        title: `Bill maybe generated for this card ${cardName}`,
+        body: `Pay your bill. Collect the owed money from friends if any owed amount is there.`,
       },
+      trigger,
     });
+    console.log(
+      `Scheduled due date notification with identifier: ${identifier} for ${scheduleDate.toISOString()}`
+    );
+    return identifier;
+  } catch (error) {
+    console.error(
+      `Failed to schedule due date notification for ${cardName} at ${scheduleDate.toISOString()}:`,
+      error
+    );
+    return null;
   }
-  return identifier;
 };
 
-// Schedule Bill and EMI Reminder
 export const scheduleBillAndEmiReminder = async (
   cardName: string,
   billDate: Date,
-  notificationTime: string // HH:MM format from settings
+  time: string
 ) => {
-  const preference = await getNotificationPreference("billEmi");
-  if (!preference || !preference.enabled) {
-    console.log("Bill and EMI Reminder is disabled in settings.");
-    return null; // Don't schedule if disabled
-  }
-
-  // Schedule 10 days after the bill generation date
-  const tenDaysAfterBill = new Date(billDate);
-  tenDaysAfterBill.setDate(tenDaysAfterBill.getDate() + 10);
-
-  const [hour, minute] = notificationTime.split(":").map(Number);
-  const scheduleDate = new Date(tenDaysAfterBill); // Use the calculated reminder date
+  const [hour, minute] = time.split(":").map(Number);
+  const scheduleDate = new Date(billDate);
   scheduleDate.setHours(hour, minute, 0, 0);
 
-  // Ensure the scheduled date is in the future
-  if (scheduleDate <= new Date()) {
-    console.log(
-      "Bill and EMI reminder date is in the past or present. Not scheduling."
+  const now = new Date();
+  if (scheduleDate <= now) {
+    console.warn(
+      `Bill date ${scheduleDate.toISOString()} is in the past. Skipping notification.`
     );
     return null;
   }
 
-  const title = `Due Sense: Bill and EMI Reminder for ${cardName}`;
-  const body = `Check your recent bill and upcoming EMIs for ${cardName}.`; // Customize body
+  const trigger = {
+    type: "timeInterval",
+    seconds: Math.floor((scheduleDate.getTime() - now.getTime()) / 1000),
+    repeats: false,
+  } as Notifications.TimeIntervalTriggerInput;
 
-  return scheduleEventNotification(title, body, scheduleDate);
+  try {
+    const identifier = await Notifications.scheduleNotificationAsync({
+      content: {
+        title: `Bill/EMI Reminder for ${cardName}`,
+        body: `Your bill/EMI for ${cardName} is due on ${billDate.toLocaleDateString()}.`,
+      },
+      trigger,
+    });
+    console.log(
+      `Scheduled bill/EMI notification with identifier: ${identifier} for ${scheduleDate.toISOString()}`
+    );
+    return identifier;
+  } catch (error) {
+    console.error(
+      `Failed to schedule bill/EMI notification for ${cardName} at ${scheduleDate.toISOString()}:`,
+      error
+    );
+    return null;
+  }
 };
 
-// Function to cancel a specific notification by identifier
+export const scheduleOwedMoneyReminder = async (
+  personName: string,
+  amount: number,
+  date: Date,
+  transactionId: string,
+  time: string
+) => {
+  const [hour, minute] = time.split(":").map(Number);
+  const scheduleDate = new Date(date);
+  scheduleDate.setHours(hour, minute, 0, 0);
+
+  const now = new Date();
+  if (scheduleDate <= now) {
+    console.warn(
+      `Owed money date ${scheduleDate.toISOString()} is in the past. Skipping notification.`
+    );
+    return null;
+  }
+
+  const trigger = {
+    type: "timeInterval",
+    seconds: Math.floor((scheduleDate.getTime() - now.getTime()) / 1000),
+    repeats: false,
+  } as Notifications.TimeIntervalTriggerInput;
+
+  try {
+    const identifier = await Notifications.scheduleNotificationAsync({
+      content: {
+        title: `Owed Money Reminder`,
+        body: `${personName} owes you ${amount} for a transaction on ${date.toLocaleDateString()}.`,
+        data: { transactionId },
+      },
+      trigger,
+    });
+    console.log(
+      `Scheduled owed money notification with identifier: ${identifier} for ${scheduleDate.toISOString()}`
+    );
+    return identifier;
+  } catch (error) {
+    console.error(
+      `Failed to schedule owed money notification for ${personName} at ${scheduleDate.toISOString()}:`,
+      error
+    );
+    return null;
+  }
+};
+
+export const scheduleGeneralOwedMoneyReminder = async (
+  date: Date,
+  time: string
+) => {
+  const [hour, minute] = time.split(":").map(Number);
+  const scheduleDate = new Date(date);
+  scheduleDate.setHours(hour, minute, 0, 0);
+
+  const now = new Date();
+  if (scheduleDate <= now) {
+    console.warn(
+      `General owed money date ${scheduleDate.toISOString()} is in the past. Skipping notification.`
+    );
+    return null;
+  }
+
+  const trigger = {
+    type: "timeInterval",
+    seconds: Math.floor((scheduleDate.getTime() - now.getTime()) / 1000),
+    repeats: false,
+  } as Notifications.TimeIntervalTriggerInput;
+
+  try {
+    const identifier = await Notifications.scheduleNotificationAsync({
+      content: {
+        title: `Owed Money Reminder`,
+        body: `You owe money from people. Remind them.`,
+      },
+      trigger,
+    });
+    console.log(
+      `Scheduled general owed money notification with identifier: ${identifier} for ${scheduleDate.toISOString()}`
+    );
+    return identifier;
+  } catch (error) {
+    console.error(
+      `Failed to schedule general owed money notification at ${scheduleDate.toISOString()}:`,
+      error
+    );
+    return null;
+  }
+};
+
 export const cancelNotificationById = async (identifier: string) => {
   try {
     await Notifications.cancelScheduledNotificationAsync(identifier);
     console.log(`Canceled notification with identifier: ${identifier}`);
   } catch (error) {
-    console.error(
-      `Failed to cancel notification with identifier ${identifier}:`,
-      error
-    );
+    console.error(`Failed to cancel notification ${identifier}:`, error);
   }
 };

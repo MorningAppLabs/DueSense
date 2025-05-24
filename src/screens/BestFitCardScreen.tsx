@@ -11,10 +11,11 @@ import {
   ScrollView,
   Animated,
 } from "react-native";
-import { Picker } from "@react-native-picker/picker"; // Updated import
+import { Picker } from "@react-native-picker/picker";
 import { useStore } from "../store/store";
 import moment from "moment";
 import { Card } from "../types/types";
+import { useSafeAreaInsets } from "react-native-safe-area-context"; // Added for notch handling
 
 interface CashbackResult {
   cardId: string;
@@ -40,6 +41,7 @@ const BestFitCardScreen: React.FC = () => {
 
   // Animation setup using Animated
   const scale = useRef(new Animated.Value(1)).current;
+  const insets = useSafeAreaInsets(); // Get safe area insets for notch/status bar
 
   const handlePressIn = () => {
     Animated.spring(scale, {
@@ -209,8 +211,11 @@ const BestFitCardScreen: React.FC = () => {
   );
 
   return (
-    <SafeAreaView style={styles.safeContainer}>
-      <ScrollView style={styles.container}>
+    <SafeAreaView style={[styles.safeContainer, { paddingTop: insets.top }]}>
+      <ScrollView
+        style={styles.container}
+        contentContainerStyle={{ paddingBottom: 48 }}
+      >
         <Text style={styles.header}>Best Fit Card</Text>
         <Text style={styles.instruction}>
           This section helps you choose the card that offers the maximum
