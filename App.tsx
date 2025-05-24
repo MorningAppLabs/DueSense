@@ -3,7 +3,8 @@ import { NavigationContainer } from "@react-navigation/native";
 import AppNavigator from "./src/navigation/AppNavigator";
 import { useStore } from "./src/store/store";
 import Toast from "react-native-toast-message";
-import { StyleSheet, View, Text, SafeAreaView } from "react-native";
+import { StyleSheet, View, Text } from "react-native";
+import { SafeAreaProvider } from "react-native-safe-area-context";
 import { useFonts } from "expo-font";
 import * as SplashScreen from "expo-splash-screen";
 
@@ -107,14 +108,14 @@ export default function App() {
 
   return (
     <ErrorBoundary>
-      <SafeAreaView style={{ flex: 1 }}>
+      <SafeAreaProvider>
         <View onLayout={onLayoutRootView} style={{ flex: 1 }}>
           <NavigationContainer>
             <AppNavigator />
             <Toast />
           </NavigationContainer>
         </View>
-      </SafeAreaView>
+      </SafeAreaProvider>
     </ErrorBoundary>
   );
 }
