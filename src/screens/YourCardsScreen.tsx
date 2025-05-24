@@ -359,7 +359,6 @@ const YourCardsScreen: React.FC = () => {
 
   return (
     <ScrollView style={styles.container}>
-      <Text style={styles.header}>Your Cards</Text>
       <Text style={styles.sectionTitle}>Add or Edit Card</Text>
       <Text style={styles.label}>Card Name</Text>
       <TextInput

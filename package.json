@@ -37,7 +37,8 @@
     "react-native-toast-message": "^2.3.0",
     "typescript": "~5.8.3",
     "zustand": "^5.0.4",
-    "react-native-safe-area-context": "5.4.0"
+    "react-native-safe-area-context": "5.4.0",
+    "@react-native-community/datetimepicker": "8.3.0"
   },
   "devDependencies": {
     "@babel/core": "^7.25.2",

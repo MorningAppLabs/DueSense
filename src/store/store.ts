@@ -2,6 +2,7 @@ import { create } from "zustand";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { Card, Transaction, Repayment, Settings } from "../types/types";
 import { saveToStorage, loadFromStorage } from "../utils/storage";
+import { scheduleOwedMoneyReminder } from "../utils/notifications";
 
 interface AppState {
   cards: Card[];
@@ -11,6 +12,7 @@ interface AppState {
   merchants: string[];
   categories: string[];
   persons: string[];
+  notificationIds: Record<string, string>;
   addCard: (card: Card) => void;
   updateCard: (card: Card) => void;
   deleteCard: (id: string) => void;
@@ -44,6 +46,7 @@ export const useStore = create<AppState>((set) => ({
   merchants: [],
   categories: [],
   persons: [],
+  notificationIds: {},
   addCard: (card: Card) =>
     set((state: AppState) => {
       const newCards = [...state.cards, card];
@@ -66,6 +69,23 @@ export const useStore = create<AppState>((set) => ({
     set((state: AppState) => {
       const newTransactions = [...state.transactions, transaction];
       saveToStorage("transactions", newTransactions);
+
+      // Schedule owed money reminder if applicable
+      if (transaction.forWhom === "Someone Else" && !transaction.repaid) {
+        const card = state.cards.find((c) => c.id === transaction.cardId);
+        if (card && transaction.personName) {
+          scheduleOwedMoneyReminder(
+            transaction.personName,
+            transaction.amount,
+            new Date(transaction.date),
+            transaction.id,
+            state.settings.notificationTimes.owedMoney
+          ).catch((error) => {
+            console.error("Failed to schedule owed money reminder:", error);
+          });
+        }
+      }
+
       return { transactions: newTransactions };
     }),
   updateTransaction: (transaction: Transaction) =>
@@ -165,6 +185,12 @@ export const useStore = create<AppState>((set) => ({
         throw new Error("Invalid categories data");
       const persons = await loadFromStorage<string[]>("persons", []);
       if (!Array.isArray(persons)) throw new Error("Invalid persons data");
+      const notificationIds = await loadFromStorage<Record<string, string>>(
+        "notificationIds",
+        {}
+      );
+      if (typeof notificationIds !== "object")
+        throw new Error("Invalid notificationIds data");
       set({
         cards,
         transactions,
@@ -173,6 +199,7 @@ export const useStore = create<AppState>((set) => ({
         merchants,
         categories,
         persons,
+        notificationIds,
       });
       console.log("Data loaded successfully");
     } catch (error: any) {
@@ -193,6 +220,7 @@ export const useStore = create<AppState>((set) => ({
         merchants: [],
         categories: [],
         persons: [],
+        notificationIds: {},
       });
     }
   },
@@ -207,6 +235,8 @@ export const useStore = create<AppState>((set) => ({
       if (newState.merchants) saveToStorage("merchants", newState.merchants);
       if (newState.categories) saveToStorage("categories", newState.categories);
       if (newState.persons) saveToStorage("persons", newState.persons);
+      if (newState.notificationIds)
+        saveToStorage("notificationIds", newState.notificationIds);
       return updatedState;
     }),
 }));

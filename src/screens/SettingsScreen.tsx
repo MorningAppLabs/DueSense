@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import {
   View,
   Text,
@@ -11,17 +11,20 @@ import {
   Dimensions,
   Animated,
   SafeAreaView,
+  Platform, // Import Platform
 } from "react-native";
-import { Picker } from "@react-native-picker/picker"; // Updated import
+import { Picker } from "@react-native-picker/picker";
 import * as FileSystem from "expo-file-system";
 import * as Sharing from "expo-sharing";
 import * as DocumentPicker from "expo-document-picker";
 import * as Linking from "expo-linking";
 import { useStore } from "../store/store";
 import {
-  scheduleNotification,
-  cancelNotifications,
+  storeNotificationPreference, // New Import
+  getNotificationPreference, // New Import
+  DEFAULT_NOTIFICATION_TIME, // New Import
 } from "../utils/notifications";
+import DateTimePicker from "@react-native-community/datetimepicker"; // New Import
 import { currencies } from "../constants/currencies";
 import { privacyPolicy } from "../constants/privacyPolicy";
 import { termsOfUse } from "../constants/termsOfUse";
@@ -33,18 +36,27 @@ const { width } = Dimensions.get("window");
 const SettingsScreen: React.FC = () => {
   const { settings, updateSettings, setState } = useStore();
   const [currency, setCurrency] = useState(settings.currency);
-  const [dueDateEnabled, setDueDateEnabled] = useState(false);
-  const [dueDateTime, setDueDateTime] = useState(
-    settings.notificationTimes.dueDate
+
+  // State for notification preferences
+  const [dueDateReminderEnabled, setDueDateReminderEnabled] = useState(false);
+  const [dueDateReminderTime, setDueDateReminderTime] = useState(
+    settings.notificationTimes?.dueDate || DEFAULT_NOTIFICATION_TIME // Initialize with stored or default
   );
-  const [owedMoneyEnabled, setOwedMoneyEnabled] = useState(false);
-  const [owedMoneyTime, setOwedMoneyTime] = useState(
-    settings.notificationTimes.owedMoney
+  const [owedMoneyReminderEnabled, setOwedMoneyReminderEnabled] =
+    useState(false);
+  const [owedMoneyReminderTime, setOwedMoneyReminderTime] = useState(
+    settings.notificationTimes?.owedMoney || DEFAULT_NOTIFICATION_TIME // Initialize with stored or default
   );
-  const [billEmiEnabled, setBillEmiEnabled] = useState(true);
-  const [billEmiTime, setBillEmiTime] = useState(
-    settings.notificationTimes.billEmi
+  const [billEmiReminderEnabled, setBillEmiReminderEnabled] = useState(false); // Changed initial state to false
+  const [billEmiReminderTime, setBillEmiReminderTime] = useState(
+    settings.notificationTimes?.billEmi || DEFAULT_NOTIFICATION_TIME // Initialize with stored or default
   );
+
+  // State for time picker visibility
+  const [showDueDatePicker, setShowDueDatePicker] = useState(false);
+  const [showOwedMoneyDatePicker, setShowOwedMoneyDatePicker] = useState(false);
+  const [showBillEmiDatePicker, setShowBillEmiDatePicker] = useState(false);
+
   const [localSync, setLocalSync] = useState(settings.sync.local);
   const [cloudSync, setCloudSync] = useState(settings.sync.cloud);
   const [showPrivacy, setShowPrivacy] = useState(false);
@@ -53,6 +65,33 @@ const SettingsScreen: React.FC = () => {
   const [showAcknowledgments, setShowAcknowledgments] = useState(false);
 
   const scale = new Animated.Value(1);
+
+  // Load notification preferences on component mount
+  useEffect(() => {
+    const loadPreferences = async () => {
+      const dueDatePref = await getNotificationPreference("dueDate");
+      if (dueDatePref) {
+        setDueDateReminderEnabled(dueDatePref.enabled);
+        setDueDateReminderTime(dueDatePref.time || DEFAULT_NOTIFICATION_TIME);
+      }
+
+      const owedMoneyPref = await getNotificationPreference("owedMoney");
+      if (owedMoneyPref) {
+        setOwedMoneyReminderEnabled(owedMoneyPref.enabled);
+        setOwedMoneyReminderTime(
+          owedMoneyPref.time || DEFAULT_NOTIFICATION_TIME
+        );
+      }
+
+      const billEmiPref = await getNotificationPreference("billEmi");
+      if (billEmiPref) {
+        setBillEmiReminderEnabled(billEmiPref.enabled);
+        setBillEmiReminderTime(billEmiPref.time || DEFAULT_NOTIFICATION_TIME);
+      }
+    };
+
+    loadPreferences();
+  }, []); // Empty dependency array ensures this runs only once on mount
 
   const handlePressIn = () => {
     Animated.spring(scale, {
@@ -143,59 +182,124 @@ const SettingsScreen: React.FC = () => {
     }
   };
 
+  // Updated handleNotificationToggle
   const handleNotificationToggle = async (
     type: "dueDate" | "owedMoney" | "billEmi",
     enabled: boolean
   ) => {
-    try {
-      if (!enabled) {
-        await cancelNotifications(type);
-      }
-
-      if (type === "dueDate") {
-        setDueDateEnabled(enabled);
-        if (enabled) {
-          await scheduleNotification(
-            "Bill Due Reminder",
-            "Bill may be generated for your cards. Pay your bill and collect owed money if any.",
-            dueDateTime,
-            "dueDate"
-          );
-        }
-      } else if (type === "owedMoney") {
-        setOwedMoneyEnabled(enabled);
-        if (enabled) {
-          await scheduleNotification(
-            "Owed Money Reminder",
-            "You owe money from people. Remind them.",
-            owedMoneyTime,
-            "owedMoney"
-          );
-        }
-      } else {
-        setBillEmiEnabled(enabled);
-        if (enabled) {
-          await scheduleNotification(
-            "Bill and EMI Reminder",
-            "Check your bills and EMIs.",
-            billEmiTime,
-            "billEmi"
-          );
-        }
-      }
-
+    if (type === "dueDate") {
+      setDueDateReminderEnabled(enabled);
+      await storeNotificationPreference(
+        "dueDate",
+        enabled,
+        dueDateReminderTime
+      );
       updateSettings({
         notificationTimes: {
-          dueDate: dueDateTime,
-          owedMoney: owedMoneyTime,
-          billEmi: billEmiTime,
+          ...settings.notificationTimes,
+          dueDate: dueDateReminderTime,
         },
       });
-    } catch (error) {
-      Alert.alert(
-        "Error",
-        "Failed to schedule notification. Ensure permissions are granted."
+    } else if (type === "owedMoney") {
+      setOwedMoneyReminderEnabled(enabled);
+      await storeNotificationPreference(
+        "owedMoney",
+        enabled,
+        owedMoneyReminderTime
       );
+      updateSettings({
+        notificationTimes: {
+          ...settings.notificationTimes,
+          owedMoney: owedMoneyReminderTime,
+        },
+      });
+    } else {
+      // billEmi
+      setBillEmiReminderEnabled(enabled);
+      await storeNotificationPreference(
+        "billEmi",
+        enabled,
+        billEmiReminderTime
+      );
+      updateSettings({
+        notificationTimes: {
+          ...settings.notificationTimes,
+          billEmi: billEmiReminderTime,
+        },
+      });
+    }
+    // Note: Scheduling/canceling event-based notifications happens elsewhere
+    // in your app based on relevant events (e.g., bill generation).
+    // This function only updates the user's preference.
+  };
+
+  // Handlers for time picker changes
+  const handleDueDateTimeChange = (event: any, selectedDate?: Date) => {
+    const currentDate = selectedDate || new Date();
+    setShowDueDatePicker(Platform.OS === "ios");
+    const timeString = `${currentDate
+      .getHours()
+      .toString()
+      .padStart(2, "0")}:${currentDate
+      .getMinutes()
+      .toString()
+      .padStart(2, "0")}`;
+    setDueDateReminderTime(timeString);
+    if (dueDateReminderEnabled) {
+      // Only save if the reminder is enabled
+      storeNotificationPreference("dueDate", true, timeString);
+      updateSettings({
+        notificationTimes: {
+          ...settings.notificationTimes,
+          dueDate: timeString,
+        },
+      });
+    }
+  };
+
+  const handleOwedMoneyTimeChange = (event: any, selectedDate?: Date) => {
+    const currentDate = selectedDate || new Date();
+    setShowOwedMoneyDatePicker(Platform.OS === "ios");
+    const timeString = `${currentDate
+      .getHours()
+      .toString()
+      .padStart(2, "0")}:${currentDate
+      .getMinutes()
+      .toString()
+      .padStart(2, "0")}`;
+    setOwedMoneyReminderTime(timeString);
+    if (owedMoneyReminderEnabled) {
+      // Only save if the reminder is enabled
+      storeNotificationPreference("owedMoney", true, timeString);
+      updateSettings({
+        notificationTimes: {
+          ...settings.notificationTimes,
+          owedMoney: timeString,
+        },
+      });
+    }
+  };
+
+  const handleBillEmiTimeChange = (event: any, selectedDate?: Date) => {
+    const currentDate = selectedDate || new Date();
+    setShowBillEmiDatePicker(Platform.OS === "ios");
+    const timeString = `${currentDate
+      .getHours()
+      .toString()
+      .padStart(2, "0")}:${currentDate
+      .getMinutes()
+      .toString()
+      .padStart(2, "0")}`;
+    setBillEmiReminderTime(timeString);
+    if (billEmiReminderEnabled) {
+      // Only save if the reminder is enabled
+      storeNotificationPreference("billEmi", true, timeString);
+      updateSettings({
+        notificationTimes: {
+          ...settings.notificationTimes,
+          billEmi: timeString,
+        },
+      });
     }
   };
 
@@ -241,7 +345,6 @@ const SettingsScreen: React.FC = () => {
   return (
     <SafeAreaView style={styles.container}>
       <ScrollView contentContainerStyle={styles.scrollContent}>
-        <Text style={styles.header}>Settings</Text>
         <Text style={styles.sectionTitle}>Currency</Text>
         <View style={styles.pickerContainer}>
           <Picker
@@ -304,111 +407,126 @@ const SettingsScreen: React.FC = () => {
           />
         </View>
         <Text style={styles.sectionTitle}>Notifications</Text>
+
+        {/* Due Date Reminder */}
         <View style={styles.toggle}>
           <Text style={styles.toggleLabel}>Due Date Reminder</Text>
           <Switch
-            value={dueDateEnabled}
+            value={dueDateReminderEnabled}
             onValueChange={(value) =>
               handleNotificationToggle("dueDate", value)
             }
             accessibilityLabel="Due Date Reminder"
           />
         </View>
-        {dueDateEnabled && (
-          <View style={styles.pickerContainer}>
-            <Picker
-              selectedValue={dueDateTime}
-              onValueChange={(value) => {
-                setDueDateTime(value);
-                if (dueDateEnabled) {
-                  handleNotificationToggle("dueDate", true);
-                }
-              }}
-              style={styles.picker}
-            >
-              {Array.from({ length: 24 }, (_, i) => ({
-                label: `${i.toString().padStart(2, "0")}:00`,
-                value: `${i.toString().padStart(2, "0")}:00`,
-              })).map((item) => (
-                <Picker.Item
-                  key={item.value}
-                  label={item.label}
-                  value={item.value}
-                />
-              ))}
-            </Picker>
+        {dueDateReminderEnabled && (
+          <View style={styles.timePickerContainer}>
+            <Text style={styles.timeLabel}>Time:</Text>
+            {Platform.OS === "android" ? (
+              <TouchableOpacity onPress={() => setShowDueDatePicker(true)}>
+                <Text style={styles.timeText}>{dueDateReminderTime}</Text>
+              </TouchableOpacity>
+            ) : (
+              <DateTimePicker
+                value={new Date(`2000-01-01T${dueDateReminderTime}:00`)} // Use a dummy date, only time matters
+                mode="time"
+                is24Hour={true}
+                display="default"
+                onChange={handleDueDateTimeChange}
+              />
+            )}
+            {showDueDatePicker && Platform.OS === "android" && (
+              <DateTimePicker
+                value={new Date(`2000-01-01T${dueDateReminderTime}:00`)} // Use a dummy date, only time matters
+                mode="time"
+                is24Hour={true}
+                display="default"
+                onChange={handleDueDateTimeChange}
+              />
+            )}
           </View>
         )}
+
+        {/* Owed Money Reminder */}
         <View style={styles.toggle}>
           <Text style={styles.toggleLabel}>Owed-Money Reminder</Text>
           <Switch
-            value={owedMoneyEnabled}
+            value={owedMoneyReminderEnabled}
             onValueChange={(value) =>
               handleNotificationToggle("owedMoney", value)
             }
             accessibilityLabel="Owed-Money Reminder"
           />
         </View>
-        {owedMoneyEnabled && (
-          <View style={styles.pickerContainer}>
-            <Picker
-              selectedValue={owedMoneyTime}
-              onValueChange={(value) => {
-                setOwedMoneyTime(value);
-                if (owedMoneyEnabled) {
-                  handleNotificationToggle("owedMoney", true);
-                }
-              }}
-              style={styles.picker}
-            >
-              {Array.from({ length: 24 }, (_, i) => ({
-                label: `${i.toString().padStart(2, "0")}:00`,
-                value: `${i.toString().padStart(2, "0")}:00`,
-              })).map((item) => (
-                <Picker.Item
-                  key={item.value}
-                  label={item.label}
-                  value={item.value}
-                />
-              ))}
-            </Picker>
+        {owedMoneyReminderEnabled && (
+          <View style={styles.timePickerContainer}>
+            <Text style={styles.timeLabel}>Time:</Text>
+            {Platform.OS === "android" ? (
+              <TouchableOpacity
+                onPress={() => setShowOwedMoneyDatePicker(true)}
+              >
+                <Text style={styles.timeText}>{owedMoneyReminderTime}</Text>
+              </TouchableOpacity>
+            ) : (
+              <DateTimePicker
+                value={new Date(`2000-01-01T${owedMoneyReminderTime}:00`)} // Use a dummy date, only time matters
+                mode="time"
+                is24Hour={true}
+                display="default"
+                onChange={handleOwedMoneyTimeChange}
+              />
+            )}
+            {showOwedMoneyDatePicker && Platform.OS === "android" && (
+              <DateTimePicker
+                value={new Date(`2000-01-01T${owedMoneyReminderTime}:00`)} // Use a dummy date, only time matters
+                mode="time"
+                is24Hour={true}
+                display="default"
+                onChange={handleOwedMoneyTimeChange}
+              />
+            )}
           </View>
         )}
+
+        {/* Bill and EMI Reminder */}
         <View style={styles.toggle}>
           <Text style={styles.toggleLabel}>Bill and EMI Reminder</Text>
           <Switch
-            value={billEmiEnabled}
+            value={billEmiReminderEnabled}
             onValueChange={(value) =>
               handleNotificationToggle("billEmi", value)
             }
             accessibilityLabel="Bill and EMI Reminder"
           />
         </View>
-        {billEmiEnabled && (
-          <View style={styles.pickerContainer}>
-            <Picker
-              selectedValue={billEmiTime}
-              onValueChange={(value) => {
-                setBillEmiTime(value);
-                if (billEmiEnabled) {
-                  handleNotificationToggle("billEmi", true);
-                }
-              }}
-              style={styles.picker}
-            >
-              {Array.from({ length: 24 }, (_, i) => ({
-                label: `${i.toString().padStart(2, "0")}:00`,
-                value: `${i.toString().padStart(2, "0")}:00`,
-              })).map((item) => (
-                <Picker.Item
-                  key={item.value}
-                  label={item.label}
-                  value={item.value}
-                />
-              ))}
-            </Picker>
+        {billEmiReminderEnabled && (
+          <View style={styles.timePickerContainer}>
+            <Text style={styles.timeLabel}>Time:</Text>
+            {Platform.OS === "android" ? (
+              <TouchableOpacity onPress={() => setShowBillEmiDatePicker(true)}>
+                <Text style={styles.timeText}>{billEmiReminderTime}</Text>
+              </TouchableOpacity>
+            ) : (
+              <DateTimePicker
+                value={new Date(`2000-01-01T${billEmiReminderTime}:00`)} // Use a dummy date, only time matters
+                mode="time"
+                is24Hour={true}
+                display="default"
+                onChange={handleBillEmiTimeChange}
+              />
+            )}
+            {showBillEmiDatePicker && Platform.OS === "android" && (
+              <DateTimePicker
+                value={new Date(`2000-01-01T${billEmiReminderTime}:00`)} // Use a dummy date, only time matters
+                mode="time"
+                is24Hour={true}
+                display="default"
+                onChange={handleBillEmiTimeChange}
+              />
+            )}
           </View>
         )}
+
         <Text style={styles.sectionTitle}>Privacy Policy</Text>
         <Animated.View
           style={[
@@ -699,6 +817,7 @@ const styles = StyleSheet.create({
     color: "#4A4A4A",
   },
   pickerContainer: {
+    // Reused for time picker in iOS
     backgroundColor: "#FFFFFF",
     borderRadius: 8,
     marginBottom: 12,
@@ -707,9 +826,30 @@ const styles = StyleSheet.create({
     overflow: "hidden",
   },
   picker: {
+    // Reused for time picker in iOS
     fontFamily: "Inter_400Regular",
     fontSize: 16,
     color: "#1A1A1A",
+  },
+  timePickerContainer: {
+    // New style for time picker container
+    flexDirection: "row",
+    alignItems: "center",
+    marginBottom: 12,
+    paddingLeft: 20, // Indent the time picker
+  },
+  timeLabel: {
+    // New style for time label
+    fontFamily: "Inter_400Regular",
+    fontSize: 16,
+    color: "#1A1A1A",
+    marginRight: 10,
+  },
+  timeText: {
+    // New style for tappable time text on Android
+    fontFamily: "Inter_400Regular",
+    fontSize: 16,
+    color: "#007AFF", // Adjust color
   },
 });
 

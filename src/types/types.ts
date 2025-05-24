@@ -54,19 +54,28 @@ export interface Settings {
   };
 }
 
-// Add to store state
 export interface StoreState {
   cards: Card[];
   transactions: Transaction[];
+  repayments: Repayment[];
+  settings: Settings;
   merchants: string[];
-  categories: string[]; // New global categories store
+  categories: string[];
   persons: string[];
-  settings: {
-    currency: string;
-    notificationTimes: {
-      dueDate: string;
-      owedMoney: string;
-      billEmi: string;
-    };
-  };
+  notificationIds: Record<string, string>;
+  addCard: (card: Card) => void;
+  updateCard: (card: Card) => void;
+  deleteCard: (id: string) => void;
+  addTransaction: (transaction: Transaction) => void;
+  updateTransaction: (transaction: Transaction) => void;
+  deleteTransaction: (id: string) => void;
+  addRepayment: (repayment: Repayment) => void;
+  updateRepayment: (repayment: Repayment) => void;
+  deleteRepayment: (id: string) => void;
+  updateSettings: (settings: Partial<Settings>) => void;
+  addMerchant: (merchant: string) => void;
+  addCategory: (category: string) => void;
+  addPerson: (person: string) => void;
+  loadData: () => Promise<void>;
+  setState: (newState: Partial<StoreState>) => void;
 }

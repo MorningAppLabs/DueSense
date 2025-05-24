@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from "react";
 import {
+  SafeAreaView,
   View,
   Text,
   StyleSheet,
@@ -10,16 +11,22 @@ import {
   Modal,
   Dimensions,
 } from "react-native";
-import { Picker } from "@react-native-picker/picker"; // Updated import
+import { Picker } from "@react-native-picker/picker";
 import { useStore } from "../store/store";
 import { Transaction, Card } from "../types/types";
 import moment from "moment";
 import TransactionCard from "../components/TransactionCard";
+import {
+  scheduleDueDateReminder,
+  scheduleBillAndEmiReminder,
+  cancelNotificationById,
+  scheduleOwedMoneyReminder,
+} from "../utils/notifications";
 
 const { width } = Dimensions.get("window");
 
 const ShowReportScreen: React.FC = () => {
-  const { cards, transactions, settings } = useStore();
+  const { cards, transactions, settings, notificationIds } = useStore();
   const [cardId, setCardId] = useState("");
   const [billingCycle, setBillingCycle] = useState("current");
   const [personFilter, setPersonFilter] = useState("");
@@ -27,6 +34,79 @@ const ShowReportScreen: React.FC = () => {
     null
   );
   const [deleteId, setDeleteId] = useState<string | null>(null);
+
+  // Schedule dueDate and billEmi reminders when cardId or billingCycle changes
+  useEffect(() => {
+    if (!cardId) return;
+
+    const card = cards.find((c: Card) => c.id === cardId);
+    if (!card) return;
+
+    const scheduleNotifications = async () => {
+      // Get billing cycle dates
+      let start: moment.Moment, end: moment.Moment;
+      if (billingCycle === "current") {
+        const currentCycle = getBillingCycleDates(
+          card,
+          moment().format("YYYY-MM-DD")
+        );
+        start = currentCycle.start;
+        end = currentCycle.end;
+      } else {
+        const [startDate, endDate] = billingCycle.split("|");
+        start = moment(startDate, "YYYY-MM-DD");
+        end = moment(endDate, "YYYY-MM-DD");
+      }
+
+      // Due Date Reminder (10 days after cycle end)
+      const dueDate = moment(end).add(10, "days").toDate();
+      const dueDateKey = `dueDate_${cardId}_${dueDate.toISOString()}`;
+      if (!notificationIds[dueDateKey]) {
+        const identifier = await scheduleDueDateReminder(
+          card.name,
+          dueDate,
+          settings.notificationTimes.dueDate
+        );
+        if (identifier) {
+          useStore.getState().setState({
+            notificationIds: {
+              ...notificationIds,
+              [dueDateKey]: identifier,
+            },
+          });
+        }
+      }
+
+      // Bill and EMI Reminder (on cycle end date)
+      const billDate = end.toDate();
+      const billEmiKey = `billEmi_${cardId}_${billDate.toISOString()}`;
+      if (!notificationIds[billEmiKey]) {
+        const identifier = await scheduleBillAndEmiReminder(
+          card.name,
+          billDate,
+          settings.notificationTimes.billEmi
+        );
+        if (identifier) {
+          useStore.getState().setState({
+            notificationIds: {
+              ...notificationIds,
+              [billEmiKey]: identifier,
+            },
+          });
+        }
+      }
+    };
+
+    scheduleNotifications().catch((error) => {
+      console.error("Failed to schedule notifications:", error);
+    });
+  }, [
+    cardId,
+    billingCycle,
+    cards,
+    settings.notificationTimes,
+    notificationIds,
+  ]);
 
   // Compute billing cycle for a given date
   const getBillingCycleDates = (card: Card, transactionDate: string) => {
@@ -61,7 +141,7 @@ const ShowReportScreen: React.FC = () => {
     const card = cards.find((c: Card) => c.id === cardId);
     if (!card) return [{ label: "Current", value: "current" }];
 
-    // Get current billing cycle (for today, May 20, 2025)
+    // Get current billing cycle (for today, May 24, 2025)
     const today = moment();
     const currentCycle = getBillingCycleDates(card, today.format("YYYY-MM-DD"));
     const currentLabel = `Current (${currentCycle.start.format(
@@ -216,8 +296,56 @@ const ShowReportScreen: React.FC = () => {
   };
 
   // Save edited transaction
-  const handleSaveEdit = () => {
+  const handleSaveEdit = async () => {
     if (!editTransaction) return;
+
+    // Check if forWhom or repaid changed for owedMoney reminder
+    const originalTransaction = transactions.find(
+      (t) => t.id === editTransaction.id
+    );
+    if (originalTransaction) {
+      const owedMoneyKey = `owedMoney_${editTransaction.id}`;
+      const shouldCancel =
+        (originalTransaction.forWhom === "Someone Else" &&
+          (editTransaction.forWhom !== "Someone Else" ||
+            editTransaction.repaid)) ||
+        (originalTransaction.forWhom === "Someone Else" &&
+          !originalTransaction.repaid &&
+          editTransaction.repaid);
+
+      if (shouldCancel && notificationIds[owedMoneyKey]) {
+        await cancelNotificationById(notificationIds[owedMoneyKey]);
+        const { [owedMoneyKey]: _, ...newNotificationIds } = notificationIds; // Remove key
+        useStore.getState().setState({
+          notificationIds: newNotificationIds,
+        });
+      }
+
+      // Reschedule owedMoney reminder if still applicable
+      if (
+        editTransaction.forWhom === "Someone Else" &&
+        !editTransaction.repaid &&
+        (originalTransaction.forWhom !== "Someone Else" ||
+          originalTransaction.repaid)
+      ) {
+        const identifier = await scheduleOwedMoneyReminder(
+          editTransaction.personName || "",
+          editTransaction.amount,
+          new Date(editTransaction.date),
+          editTransaction.id,
+          settings.notificationTimes.owedMoney
+        );
+        if (identifier) {
+          useStore.getState().setState({
+            notificationIds: {
+              ...notificationIds,
+              [owedMoneyKey]: identifier,
+            },
+          });
+        }
+      }
+    }
+
     useStore.setState((state: { transactions: Transaction[] }) => ({
       transactions: state.transactions.map((t) =>
         t.id === editTransaction.id ? editTransaction : t
@@ -228,7 +356,23 @@ const ShowReportScreen: React.FC = () => {
   };
 
   // Handle delete with confirmation
-  const handleDelete = (id: string) => {
+  const handleDelete = async (id: string) => {
+    const transaction = transactions.find((t) => t.id === id);
+    if (
+      transaction &&
+      transaction.forWhom === "Someone Else" &&
+      !transaction.repaid
+    ) {
+      const owedMoneyKey = `owedMoney_${id}`;
+      if (notificationIds[owedMoneyKey]) {
+        await cancelNotificationById(notificationIds[owedMoneyKey]);
+        const { [owedMoneyKey]: _, ...newNotificationIds } = notificationIds; // Remove key
+        useStore.getState().setState({
+          notificationIds: newNotificationIds,
+        });
+      }
+    }
+
     Alert.alert(
       "Confirm Delete",
       "Are you sure you want to delete this transaction?",
@@ -280,8 +424,7 @@ const ShowReportScreen: React.FC = () => {
     : { totalSpent: 0, unbilled: 0, repaid: 0 };
 
   return (
-    <View style={styles.container}>
-      <Text style={styles.header}>Show Report</Text>
+    <SafeAreaView style={styles.container}>
       <View style={styles.pickerContainer}>
         <Picker
           selectedValue={cardId}
@@ -367,7 +510,7 @@ const ShowReportScreen: React.FC = () => {
               style={styles.input}
               placeholder="Amount"
               keyboardType="numeric"
-              value={editTransaction?.amount.toString()}
+              value={editTransaction?.amount?.toString()}
               onChangeText={(text) =>
                 setEditTransaction(
                   (prev) => prev && { ...prev, amount: Number(text) }
@@ -418,7 +561,7 @@ const ShowReportScreen: React.FC = () => {
           </View>
         </View>
       </Modal>
-    </View>
+    </SafeAreaView>
   );
 };
 

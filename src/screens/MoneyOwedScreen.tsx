@@ -8,7 +8,7 @@ import {
   Alert,
   Animated,
 } from "react-native";
-import { Picker } from "@react-native-picker/picker"; // Updated import
+import { Picker } from "@react-native-picker/picker";
 import { Feather } from "@expo/vector-icons";
 import { useStore } from "../store/store";
 import { Transaction, Card } from "../types/types";
@@ -16,12 +16,12 @@ import * as Linking from "expo-linking";
 import * as Sharing from "expo-sharing";
 import * as FileSystem from "expo-file-system";
 import TransactionCard from "../components/TransactionCard";
+import { cancelNotificationById } from "../utils/notifications"; // Import notification util
 
 const MoneyOwedScreen: React.FC = () => {
-  const { transactions, settings, persons } = useStore();
+  const { transactions, settings, persons, notificationIds } = useStore();
   const [personFilter, setPersonFilter] = useState("");
 
-  // Animation setup using Animated
   const scale = useRef(new Animated.Value(1)).current;
 
   const handlePressIn = () => {
@@ -42,20 +42,18 @@ const MoneyOwedScreen: React.FC = () => {
     }).start();
   };
 
-  // Filter and sort transactions for money owed (latest date first)
   const getOwedTransactions = () => {
     let filtered = transactions.filter(
       (t: Transaction) => t.forWhom === "Someone Else" && !t.repaid
     );
     if (personFilter) {
       filtered = filtered.filter(
-        (t: Transaction) => t.personName === personFilter
+        (t: Transaction) => t.personName === t.personName
       );
     }
     return filtered.sort((a, b) => b.date.localeCompare(a.date));
   };
 
-  // Calculate total owed amount
   const getTotalOwed = () => {
     return getOwedTransactions().reduce(
       (sum: number, t: Transaction) => sum + t.amount,
@@ -63,8 +61,19 @@ const MoneyOwedScreen: React.FC = () => {
     );
   };
 
-  // Handle marking a transaction as repaid
-  const handleMarkRepaid = (id: string) => {
+  const handleMarkRepaid = async (id: string) => {
+    // Cancel associated notification
+    const notificationId = notificationIds[`owedMoney_${id}`];
+    if (notificationId) {
+      await cancelNotificationById(notificationId);
+      useStore.setState((state) => {
+        const newNotificationIds = { ...state.notificationIds };
+        delete newNotificationIds[`owedMoney_${id}`];
+        return { notificationIds: newNotificationIds };
+      });
+    }
+
+    // Mark transaction as repaid
     useStore.setState((state: { transactions: Transaction[] }) => ({
       transactions: state.transactions.map((t) =>
         t.id === id ? { ...t, repaid: true } : t
@@ -73,7 +82,6 @@ const MoneyOwedScreen: React.FC = () => {
     Alert.alert("Success", "Transaction marked as repaid!");
   };
 
-  // Show confirmation dialog before marking as repaid
   const confirmMarkRepaid = (id: string) => {
     Alert.alert(
       "Confirm Repayment",
@@ -92,7 +100,6 @@ const MoneyOwedScreen: React.FC = () => {
     );
   };
 
-  // Generate formatted reminder text (sorted by latest date first)
   const generateReminderText = (transactions: Transaction[]) => {
     const sortedTransactions = [...transactions].sort((a, b) =>
       b.date.localeCompare(a.date)
@@ -111,7 +118,6 @@ const MoneyOwedScreen: React.FC = () => {
     }${getTotalOwed()}. Details:\n${details}\nPlease repay as I need to pay the bill.`;
   };
 
-  // Handle sending reminders via WhatsApp, Telegram, or Email
   const handleSendReminder = async (
     type: "WhatsApp" | "Telegram" | "Email",
     transactions: Transaction[]
@@ -141,7 +147,6 @@ const MoneyOwedScreen: React.FC = () => {
     }
   };
 
-  // Handle sharing reminder as a text file
   const handleShare = async (transactions: Transaction[]) => {
     if (!transactions.length) {
       Alert.alert("Error", "No transactions to share.");
@@ -160,7 +165,6 @@ const MoneyOwedScreen: React.FC = () => {
     }
   };
 
-  // Render each owed transaction
   const renderTransaction = ({ item }: { item: Transaction }) => (
     <View style={styles.transactionWrapper}>
       <TransactionCard
@@ -188,7 +192,8 @@ const MoneyOwedScreen: React.FC = () => {
 
   return (
     <View style={styles.container}>
-      <Text style={styles.header}>Money Owed</Text>
+      {/* Remove this line */}
+      {/* <Text style={styles.header}>Money Owed</Text> */}
       <View style={styles.pickerContainer}>
         <Picker
           selectedValue={personFilter}
