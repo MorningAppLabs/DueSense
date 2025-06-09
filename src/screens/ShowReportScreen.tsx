@@ -21,13 +21,14 @@ import {
   scheduleBillAndEmiReminder,
   cancelNotificationById,
   scheduleOwedMoneyReminder,
-  scheduleGeneralOwedMoneyReminder, // Added for general owed-money reminder
+  scheduleGeneralOwedMoneyReminder,
 } from "../utils/notifications";
 
 const { width } = Dimensions.get("window");
 
 const ShowReportScreen: React.FC = () => {
-  const { cards, transactions, settings, notificationIds } = useStore();
+  const { cards, transactions, settings, notificationIds, repayments } =
+    useStore();
   const [cardId, setCardId] = useState("");
   const [billingCycle, setBillingCycle] = useState("current");
   const [personFilter, setPersonFilter] = useState("");
@@ -44,7 +45,6 @@ const ShowReportScreen: React.FC = () => {
     if (!card) return;
 
     const scheduleNotifications = async () => {
-      // Get billing cycle dates
       let start: moment.Moment, end: moment.Moment;
       if (billingCycle === "current") {
         const currentCycle = getBillingCycleDates(
@@ -60,7 +60,7 @@ const ShowReportScreen: React.FC = () => {
       }
 
       // Due Date Reminder (on cycle end date)
-      const dueDate = end.toDate(); // Changed from moment(end).add(10, "days").toDate()
+      const dueDate = end.toDate();
       const dueDateKey = `dueDate_${cardId}_${dueDate.toISOString()}`;
       if (!notificationIds[dueDateKey]) {
         const identifier = await scheduleDueDateReminder(
@@ -172,14 +172,12 @@ const ShowReportScreen: React.FC = () => {
     const card = cards.find((c: Card) => c.id === cardId);
     if (!card) return [{ label: "Current", value: "current" }];
 
-    // Get current billing cycle (for today)
     const today = moment();
     const currentCycle = getBillingCycleDates(card, today.format("YYYY-MM-DD"));
     const currentLabel = `Current (${currentCycle.start.format(
       "DD MMM YYYY"
     )} - ${currentCycle.end.format("DD MMM YYYY")})`;
 
-    // Get all billing cycles from transactions
     const cardTransactions = transactions.filter(
       (t: Transaction) => t.cardId === cardId
     );
@@ -196,7 +194,6 @@ const ShowReportScreen: React.FC = () => {
       }
     });
 
-    // Sort cycles (latest first) and map to dropdown options
     const sortedCycles = cycles.sort((a, b) => b.start.diff(a.start));
     const options = [
       { label: currentLabel, value: "current" },
@@ -223,7 +220,6 @@ const ShowReportScreen: React.FC = () => {
   const getFilteredTransactions = () => {
     let filtered = transactions.filter((t: Transaction) => t.cardId === cardId);
 
-    // Filter by person
     if (personFilter) {
       filtered = filtered.filter(
         (t: Transaction) =>
@@ -232,7 +228,6 @@ const ShowReportScreen: React.FC = () => {
       );
     }
 
-    // Filter by billing cycle
     if (billingCycle !== "current") {
       const [startDate, endDate] = billingCycle.split("|");
       const start = moment(startDate, "YYYY-MM-DD");
@@ -258,7 +253,6 @@ const ShowReportScreen: React.FC = () => {
       }
     }
 
-    // Group by date and sort (latest first)
     const grouped: { [key: string]: Transaction[] } = {};
     filtered.forEach((t: Transaction) => {
       const date = t.date;
@@ -274,10 +268,9 @@ const ShowReportScreen: React.FC = () => {
   const getSummary = () => {
     const card = cards.find((c: Card) => c.id === cardId);
     if (!card) {
-      return { totalSpent: 0, unbilled: 0, repaid: 0 };
+      return { totalSpent: 0, unbilled: 0, repaid: 0, totalCashback: 0 };
     }
 
-    // Determine billing cycle dates
     let start: moment.Moment, end: moment.Moment;
     if (billingCycle === "current") {
       const currentCycle = getBillingCycleDates(
@@ -304,20 +297,26 @@ const ShowReportScreen: React.FC = () => {
     );
 
     // Filter repayments by billing cycle
-    const totalRepaid = useStore
-      .getState()
-      .repayments.filter(
-        (r: { cardId: string; date?: string }) =>
+    const totalRepaid = repayments
+      .filter(
+        (r: { cardId: string; billingCycleStart?: string }) =>
           r.cardId === cardId &&
-          r.date &&
-          moment(r.date, "YYYY-MM-DD").isBetween(start, end, undefined, "[]")
+          r.billingCycleStart &&
+          moment(r.billingCycleStart, "YYYY-MM-DD").isSame(start, "day")
       )
       .reduce((sum: number, r: { amount: number }) => sum + r.amount, 0);
+
+    // Calculate total cashback
+    const totalCashback = cardTransactions.reduce(
+      (sum: number, t: Transaction) => sum + (t.cashback || 0),
+      0
+    );
 
     return {
       totalSpent,
       unbilled: totalSpent - totalRepaid,
       repaid: totalRepaid,
+      totalCashback,
     };
   };
 
@@ -330,7 +329,6 @@ const ShowReportScreen: React.FC = () => {
   const handleSaveEdit = async () => {
     if (!editTransaction) return;
 
-    // Check if forWhom or repaid changed for owedMoney reminder
     const originalTransaction = transactions.find(
       (t) => t.id === editTransaction.id
     );
@@ -346,13 +344,12 @@ const ShowReportScreen: React.FC = () => {
 
       if (shouldCancel && notificationIds[owedMoneyKey]) {
         await cancelNotificationById(notificationIds[owedMoneyKey]);
-        const { [owedMoneyKey]: _, ...newNotificationIds } = notificationIds; // Remove key
+        const { [owedMoneyKey]: _, ...newNotificationIds } = notificationIds;
         useStore.getState().setState({
           notificationIds: newNotificationIds,
         });
       }
 
-      // Reschedule owedMoney reminder if still applicable
       if (
         editTransaction.forWhom === "Someone Else" &&
         !editTransaction.repaid &&
@@ -397,7 +394,7 @@ const ShowReportScreen: React.FC = () => {
       const owedMoneyKey = `owedMoney_${id}`;
       if (notificationIds[owedMoneyKey]) {
         await cancelNotificationById(notificationIds[owedMoneyKey]);
-        const { [owedMoneyKey]: _, ...newNotificationIds } = notificationIds; // Remove key
+        const { [owedMoneyKey]: _, ...newNotificationIds } = notificationIds;
         useStore.getState().setState({
           notificationIds: newNotificationIds,
         });
@@ -442,6 +439,7 @@ const ShowReportScreen: React.FC = () => {
             onDelete={handleDelete}
             showPerson={true}
             showStatus={true}
+            showCashback={true} // Added to display cashback
           />
         )}
         keyExtractor={(t) => t.id}
@@ -452,146 +450,152 @@ const ShowReportScreen: React.FC = () => {
 
   const summary = cardId
     ? getSummary()
-    : { totalSpent: 0, unbilled: 0, repaid: 0 };
+    : { totalSpent: 0, unbilled: 0, repaid: 0, totalCashback: 0 };
 
   return (
     <SafeAreaView style={styles.container}>
-      <View style={styles.pickerContainer}>
-        <Picker
-          selectedValue={cardId}
-          onValueChange={(value) => setCardId(value)}
-          style={styles.picker}
-          accessibilityLabel="Select Credit Card"
-          accessibilityRole="combobox"
+      <View style={styles.content}>
+        <View style={styles.pickerContainer}>
+          <Picker
+            selectedValue={cardId}
+            onValueChange={(value) => setCardId(value)}
+            style={styles.picker}
+            accessibilityLabel="Select Credit Card"
+            accessibilityRole="combobox"
+          >
+            <Picker.Item label="Select Credit Card" value="" />
+            {cards.map((card: Card) => (
+              <Picker.Item key={card.id} label={card.name} value={card.id} />
+            ))}
+          </Picker>
+        </View>
+        {cardId && (
+          <>
+            <View style={styles.pickerContainer}>
+              <Picker
+                selectedValue={billingCycle}
+                onValueChange={(value) => setBillingCycle(value)}
+                style={styles.picker}
+                accessibilityLabel="Select Billing Cycle"
+                accessibilityRole="combobox"
+              >
+                {getBillingCycles(cardId).map((option) => (
+                  <Picker.Item
+                    key={option.value}
+                    label={option.label}
+                    value={option.value}
+                  />
+                ))}
+              </Picker>
+            </View>
+            <View style={styles.pickerContainer}>
+              <Picker
+                selectedValue={personFilter}
+                onValueChange={(value) => setPersonFilter(value)}
+                style={styles.picker}
+                accessibilityLabel="Filter by Person"
+                accessibilityRole="combobox"
+              >
+                <Picker.Item label="Filter by Person" value="" />
+                <Picker.Item label="All" value="" />
+                <Picker.Item label="Myself" value="Myself" />
+                {useStore.getState().persons.map((p: string) => (
+                  <Picker.Item key={p} label={p} value={p} />
+                ))}
+              </Picker>
+            </View>
+            <View style={styles.summary}>
+              <Text style={styles.summaryText}>
+                Total Spent: {settings.currency}
+                {summary.totalSpent.toFixed(2)}
+              </Text>
+              <Text style={styles.summaryText}>
+                Unbilled Amount: {settings.currency}
+                {summary.unbilled.toFixed(2)}
+              </Text>
+              <Text style={styles.summaryText}>
+                Repaid Amount: {settings.currency}
+                {summary.repaid.toFixed(2)}
+              </Text>
+              <Text style={styles.summaryText}>
+                Total Cashback: {settings.currency}
+                {summary.totalCashback.toFixed(2)}
+              </Text>
+            </View>
+            <FlatList
+              data={getFilteredTransactions()}
+              renderItem={renderDateGroup}
+              keyExtractor={(item) => item[0]}
+              style={styles.list}
+            />
+          </>
+        )}
+        {/* Edit Transaction Modal */}
+        <Modal
+          visible={!!editTransaction}
+          transparent={true}
+          animationType="slide"
+          onRequestClose={() => setEditTransaction(null)}
         >
-          <Picker.Item label="Select Credit Card" value="" />
-          {cards.map((card: Card) => (
-            <Picker.Item key={card.id} label={card.name} value={card.id} />
-          ))}
-        </Picker>
-      </View>
-      {cardId && (
-        <>
-          <View style={styles.pickerContainer}>
-            <Picker
-              selectedValue={billingCycle}
-              onValueChange={(value) => setBillingCycle(value)}
-              style={styles.picker}
-              accessibilityLabel="Select Billing Cycle"
-              accessibilityRole="combobox"
-            >
-              {getBillingCycles(cardId).map((option) => (
-                <Picker.Item
-                  key={option.value}
-                  label={option.label}
-                  value={option.value}
-                />
-              ))}
-            </Picker>
-          </View>
-          <View style={styles.pickerContainer}>
-            <Picker
-              selectedValue={personFilter}
-              onValueChange={(value) => setPersonFilter(value)}
-              style={styles.picker}
-              accessibilityLabel="Filter by Person"
-              accessibilityRole="combobox"
-            >
-              <Picker.Item label="Filter by Person" value="" />
-              <Picker.Item label="All" value="" />
-              <Picker.Item label="Myself" value="Myself" />
-              {useStore.getState().persons.map((p: string) => (
-                <Picker.Item key={p} label={p} value={p} />
-              ))}
-            </Picker>
-          </View>
-          <View style={styles.summary}>
-            <Text style={styles.summaryText}>
-              Total Spent: {settings.currency}
-              {summary.totalSpent}
-            </Text>
-            <Text style={styles.summaryText}>
-              Unbilled Amount: {settings.currency}
-              {summary.unbilled}
-            </Text>
-            <Text style={styles.summaryText}>
-              Repaid Amount: {settings.currency}
-              {summary.repaid}
-            </Text>
-          </View>
-          <FlatList
-            data={getFilteredTransactions()}
-            renderItem={renderDateGroup}
-            keyExtractor={(item) => item[0]}
-            style={styles.list}
-          />
-        </>
-      )}
-      {/* Edit Transaction Modal */}
-      <Modal
-        visible={!!editTransaction}
-        transparent={true}
-        animationType="slide"
-        onRequestClose={() => setEditTransaction(null)}
-      >
-        <View style={styles.modalOverlay}>
-          <View style={styles.modal}>
-            <Text style={styles.modalTitle}>Edit Transaction</Text>
-            <TextInput
-              style={styles.input}
-              placeholder="Amount"
-              keyboardType="numeric"
-              value={editTransaction?.amount?.toString()}
-              onChangeText={(text) =>
-                setEditTransaction(
-                  (prev) => prev && { ...prev, amount: Number(text) }
-                )
-              }
-              accessibilityLabel="Transaction Amount"
-            />
-            <TextInput
-              style={styles.input}
-              placeholder="Merchant"
-              value={editTransaction?.merchant}
-              onChangeText={(text) =>
-                setEditTransaction(
-                  (prev) => prev && { ...prev, merchant: text }
-                )
-              }
-              accessibilityLabel="Transaction Merchant"
-            />
-            <TextInput
-              style={styles.input}
-              placeholder="Description"
-              value={editTransaction?.description}
-              onChangeText={(text) =>
-                setEditTransaction(
-                  (prev) => prev && { ...prev, description: text }
-                )
-              }
-              accessibilityLabel="Transaction Description"
-            />
-            <View style={styles.modalButtons}>
-              <TouchableOpacity
-                style={styles.modalButton}
-                onPress={() => setEditTransaction(null)}
-                accessibilityLabel="Cancel Edit"
-                accessibilityRole="button"
-              >
-                <Text style={styles.modalButtonText}>Cancel</Text>
-              </TouchableOpacity>
-              <TouchableOpacity
-                style={styles.modalButton}
-                onPress={handleSaveEdit}
-                accessibilityLabel="Save Edit"
-                accessibilityRole="button"
-              >
-                <Text style={styles.modalButtonText}>Save</Text>
-              </TouchableOpacity>
+          <View style={styles.modalOverlay}>
+            <View style={styles.modal}>
+              <Text style={styles.modalTitle}>Edit Transaction</Text>
+              <TextInput
+                style={styles.input}
+                placeholder="Amount"
+                keyboardType="numeric"
+                value={editTransaction?.amount?.toString()}
+                onChangeText={(text) =>
+                  setEditTransaction(
+                    (prev) => prev && { ...prev, amount: Number(text) }
+                  )
+                }
+                accessibilityLabel="Transaction Amount"
+              />
+              <TextInput
+                style={styles.input}
+                placeholder="Merchant"
+                value={editTransaction?.merchant}
+                onChangeText={(text) =>
+                  setEditTransaction(
+                    (prev) => prev && { ...prev, merchant: text }
+                  )
+                }
+                accessibilityLabel="Transaction Merchant"
+              />
+              <TextInput
+                style={styles.input}
+                placeholder="Description"
+                value={editTransaction?.description}
+                onChangeText={(text) =>
+                  setEditTransaction(
+                    (prev) => prev && { ...prev, description: text }
+                  )
+                }
+                accessibilityLabel="Transaction Description"
+              />
+              <View style={styles.modalButtons}>
+                <TouchableOpacity
+                  style={styles.modalButton}
+                  onPress={() => setEditTransaction(null)}
+                  accessibilityLabel="Cancel Edit"
+                  accessibilityRole="button"
+                >
+                  <Text style={styles.modalButtonText}>Cancel</Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  style={styles.modalButton}
+                  onPress={handleSaveEdit}
+                  accessibilityLabel="Save Edit"
+                  accessibilityRole="button"
+                >
+                  <Text style={styles.modalButtonText}>Save</Text>
+                </TouchableOpacity>
+              </View>
             </View>
           </View>
-        </View>
-      </Modal>
+        </Modal>
+      </View>
     </SafeAreaView>
   );
 };
@@ -600,13 +604,10 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: "#F0F4F8",
-    padding: 16,
   },
-  header: {
-    fontFamily: "Inter_700Bold",
-    fontSize: 24,
-    color: "#1A1A1A",
-    marginBottom: 8,
+  content: {
+    flex: 1,
+    padding: 16,
   },
   summary: {
     backgroundColor: "#FFFFFF",

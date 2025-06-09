@@ -4,8 +4,8 @@ import {
   Text,
   ScrollView,
   StyleSheet,
-  SafeAreaView, // Added
-  Dimensions, // Added
+  SafeAreaView,
+  Dimensions,
 } from "react-native";
 import { useStore } from "../store/store";
 import ActionButton from "../components/ActionButton";
@@ -24,7 +24,7 @@ type RootStackParamList = {
 
 type NavigationProp = NativeStackNavigationProp<RootStackParamList>;
 
-const { width } = Dimensions.get("window"); // Added for responsive sizing
+const { width } = Dimensions.get("window");
 
 const HomeScreen: React.FC = () => {
   const navigation = useNavigation<NavigationProp>();
@@ -58,6 +58,15 @@ const HomeScreen: React.FC = () => {
       cycleEnd.add(1, "month");
     }
 
+    // Debug log
+    console.log(
+      `Billing Cycle for ${
+        card.name
+      } on ${transactionDate}: ${cycleStart.format(
+        "YYYY-MM-DD"
+      )} to ${cycleEnd.format("YYYY-MM-DD")}`
+    );
+
     return { start: cycleStart, end: cycleEnd };
   };
 
@@ -65,24 +74,54 @@ const HomeScreen: React.FC = () => {
     const card = cards.find((c: Card) => c.id === cardId);
     if (!card) return 0;
 
-    const today = moment("2025-05-14", "YYYY-MM-DD");
+    const today = moment();
     const { start, end } = getBillingCycleDates(
       card,
       today.format("YYYY-MM-DD")
     );
 
-    const cardTransactions = transactions.filter(
-      (t: Transaction) =>
+    const cardTransactions = transactions.filter((t: Transaction) => {
+      const isMatch =
         t.cardId === cardId &&
-        moment(t.date).isBetween(start, end, undefined, "[]")
-    );
+        moment(t.date, "YYYY-MM-DD").isBetween(start, end, undefined, "[]");
+      // Debug log
+      if (isMatch) {
+        console.log(
+          `Transaction matched for ${card.name}: ${t.date}, Amount: ${t.amount}`
+        );
+      }
+      return isMatch;
+    });
+
     const totalSpent = cardTransactions.reduce(
       (sum: number, t: Transaction) => sum + t.amount,
       0
     );
+
     const totalRepaid = repayments
-      .filter((r: Repayment) => r.cardId === cardId)
-      .reduce((sum: number, r: Repayment) => sum + r.amount, 0);
+      .filter(
+        (r: Repayment) =>
+          r.cardId === cardId &&
+          r.billingCycleStart &&
+          moment(r.billingCycleStart, "YYYY-MM-DD").isSame(start, "day")
+      )
+      .reduce((sum: number, r: Repayment) => {
+        // Debug log
+        console.log(
+          `Repayment matched for ${card.name}: ${r.billingCycleStart}, Amount: ${r.amount}`
+        );
+        return sum + r.amount;
+      }, 0);
+
+    // Debug log
+    console.log(
+      `${
+        card.name
+      } - Total Spent: ${totalSpent}, Total Repaid: ${totalRepaid}, Unbilled: ${
+        totalSpent - totalRepaid
+      }`
+    );
+
     return totalSpent - totalRepaid;
   };
 
@@ -90,19 +129,31 @@ const HomeScreen: React.FC = () => {
     const card = cards.find((c: Card) => c.id === cardId);
     if (!card) return 0;
 
-    const today = moment("2025-05-14", "YYYY-MM-DD");
+    const today = moment();
     const { start, end } = getBillingCycleDates(
       card,
       today.format("YYYY-MM-DD")
     );
 
-    return transactions
+    const cashback = transactions
       .filter(
         (t: Transaction) =>
           t.cardId === cardId &&
-          moment(t.date).isBetween(start, end, undefined, "[]")
+          moment(t.date, "YYYY-MM-DD").isBetween(start, end, undefined, "[]")
       )
-      .reduce((sum: number, t: Transaction) => sum + (t.cashback || 0), 0);
+      .reduce((sum: number, t: Transaction) => {
+        const cb = t.cashback || 0;
+        // Debug log
+        if (cb > 0) {
+          console.log(`Cashback for ${card.name}: ${t.date}, Amount: ${cb}`);
+        }
+        return sum + cb;
+      }, 0);
+
+    // Debug log
+    console.log(`${card.name} - Total Cashback: ${cashback}`);
+
+    return cashback;
   };
 
   const getOwedByPerson = () => {
@@ -112,6 +163,8 @@ const HomeScreen: React.FC = () => {
     const grouped = owedTransactions.reduce((acc, t) => {
       const name = t.personName || "Unknown";
       acc[name] = (acc[name] || 0) + t.amount;
+      // Debug log
+      console.log(`Owed by ${name}: ${t.amount}`);
       return acc;
     }, {} as { [key: string]: number });
     return Object.entries(grouped).sort(([a], [b]) => a.localeCompare(b));
@@ -163,9 +216,15 @@ const HomeScreen: React.FC = () => {
                     .filter(
                       (t: Transaction) =>
                         t.cardId === card.id &&
-                        moment(t.date).isBetween(
-                          getBillingCycleDates(card, "2025-05-14").start,
-                          getBillingCycleDates(card, "2025-05-14").end,
+                        moment(t.date, "YYYY-MM-DD").isBetween(
+                          getBillingCycleDates(
+                            card,
+                            moment().format("YYYY-MM-DD")
+                          ).start,
+                          getBillingCycleDates(
+                            card,
+                            moment().format("YYYY-MM-DD")
+                          ).end,
                           undefined,
                           "[]"
                         )
@@ -242,10 +301,10 @@ const styles = StyleSheet.create({
   },
   actions: {
     flexDirection: "row",
-    justifyContent: "space-between", // Changed from space-evenly
+    justifyContent: "space-between",
     marginBottom: 16,
-    paddingHorizontal: 8, // Increased from 8
-    gap: 4, // Added explicit spacing between buttons
+    paddingHorizontal: 8,
+    gap: 4,
   },
   overview: {
     marginTop: 16,

@@ -23,6 +23,7 @@ interface TransactionCardProps {
   showCardName?: boolean;
   showPerson?: boolean;
   showStatus?: boolean;
+  showCashback?: boolean; // Added for cashback display
 }
 
 const TransactionCard: React.FC<TransactionCardProps> = ({
@@ -32,6 +33,7 @@ const TransactionCard: React.FC<TransactionCardProps> = ({
   showCardName = false,
   showPerson = false,
   showStatus = false,
+  showCashback = false, // Default to false
 }) => {
   const { settings, cards } = useStore();
   const [deleteModalVisible, setDeleteModalVisible] = useState(false);
@@ -106,6 +108,12 @@ const TransactionCard: React.FC<TransactionCardProps> = ({
           Amount: {settings.currency}
           {transaction.amount.toFixed(2)}
         </Text>
+        {showCashback && transaction.cashback !== undefined && (
+          <Text style={[styles.text, styles.cashbackText]}>
+            Cashback: {settings.currency}
+            {transaction.cashback.toFixed(2)}
+          </Text>
+        )}
         {showPerson && (
           <Text style={styles.text}>
             For: {transaction.personName || "Myself"}
@@ -195,7 +203,7 @@ const styles = StyleSheet.create({
     shadowRadius: 4,
     shadowOffset: { width: 0, height: 2 },
     elevation: 2,
-    position: "relative", // Added for absolute positioning
+    position: "relative",
   },
   duo: {
     backgroundColor: "#FFEBEE",
@@ -205,7 +213,7 @@ const styles = StyleSheet.create({
   },
   textContainer: {
     padding: 12,
-    maxWidth: width - 80, // Limit text width to prevent icon overflow
+    maxWidth: width - 96, // Adjusted for narrow screens and icon space
   },
   text: {
     fontFamily: "Inter_400Regular",
@@ -213,13 +221,16 @@ const styles = StyleSheet.create({
     color: "#4A4A4A",
     marginBottom: 4,
   },
+  cashbackText: {
+    color: "#388E3C", // Green to match "Repay to Card" button
+  },
   actions: {
-    position: "absolute", // Move to top-right
+    position: "absolute",
     top: 8,
     right: 8,
     flexDirection: "row",
     alignItems: "center",
-    gap: 10, // Reduced for tighter spacing
+    gap: 8, // Adjusted for tighter spacing
   },
   actionButton: {
     padding: 4,
