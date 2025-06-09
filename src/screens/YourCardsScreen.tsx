@@ -157,26 +157,50 @@ const YourCardsScreen: React.FC = () => {
     if (!name || !startDay || !endDay || !limit) {
       return Alert.alert("Error", "Please fill all required fields.");
     }
-    if (Number(endDay) >= Number(startDay)) {
-      return Alert.alert(
-        "Error",
-        "Billing cycle end day must be before start day."
-      );
-    }
+
+    const startDayNum = Number(startDay);
+    const endDayNum = Number(endDay);
+    const limitNum = Number(limit);
+
     if (
-      Number(startDay) < 1 ||
-      Number(startDay) > 31 ||
-      Number(endDay) < 1 ||
-      Number(endDay) > 31
+      startDayNum < 1 ||
+      startDayNum > 31 ||
+      endDayNum < 1 ||
+      endDayNum > 31
     ) {
       return Alert.alert(
         "Error",
         "Billing cycle days must be between 1 and 31."
       );
     }
-    if (Number(limit) <= 0) {
+
+    // Corrected logic:
+    if (startDayNum <= endDayNum) {
+      // This is a same-month cycle or an invalid cross-month cycle
+      // It's valid only if endDay is >= startDay AND they are not the same day
+      if (startDayNum === endDayNum) {
+        return Alert.alert(
+          "Error",
+          "Billing cycle start and end days cannot be the same unless it is for a full month, which is not implemented."
+        );
+      }
+      // Valid same-month cycle (e.g., 5-25) - No error needed here
+    } else {
+      // This is a potential cross-month cycle (endDay < startDay)
+      // It's valid only if endDay is exactly one day less than startDay
+      const previousDay = startDayNum === 1 ? 31 : startDayNum - 1;
+      if (endDayNum !== previousDay) {
+        return Alert.alert(
+          "Error",
+          "For billing cycles that cross months, the end day must be exactly one day before the start day."
+        );
+      }
+    }
+
+    if (limitNum <= 0) {
       return Alert.alert("Error", "Credit limit must be greater than 0.");
     }
+
     if (
       enableCashback &&
       cashbackRules.some((r) => !r.percentage || Number(r.percentage) <= 0)

@@ -30,7 +30,7 @@ const TabNavigator: React.FC = () => {
             case "Money Owed":
               iconName = "dollar-sign";
               break;
-            case "Your Cards":
+            case "Cards":
               iconName = "credit-card";
               break;
             case "Settings":
@@ -51,14 +51,14 @@ const TabNavigator: React.FC = () => {
         },
         tabBarLabelStyle: {
           fontFamily: "Inter_700Bold",
-          fontSize: 11,
+          fontSize: 10,
         },
       })}
     >
       <Tab.Screen name="Home" component={HomeScreen} />
       <Tab.Screen name="Reports" component={ShowReportScreen} />
       <Tab.Screen name="Money Owed" component={MoneyOwedScreen} />
-      <Tab.Screen name="Your Cards" component={YourCardsScreen} />
+      <Tab.Screen name="Cards" component={YourCardsScreen} />
       <Tab.Screen name="Settings" component={SettingsScreen} />
     </Tab.Navigator>
   );

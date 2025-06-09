@@ -87,7 +87,7 @@ const styles = StyleSheet.create({
   },
   button: {
     flex: 1,
-    flexDirection: "row", // Align icon and text horizontally
+    flexDirection: "column", // Align icon and text horizontally
     justifyContent: "center",
     alignItems: "center",
     paddingHorizontal: 8,
@@ -96,8 +96,9 @@ const styles = StyleSheet.create({
     fontFamily: "Inter_700Bold",
     fontSize: 14, // Reduced to prevent wrapping
     color: "#FFFFFF",
-    marginLeft: 6, // Space between icon and text
+    //marginLeft: 6, // Space between icon and text
     flexShrink: 1, // Allow text to shrink if needed
+    marginTop: 4, // Add vertical margin
     textAlign: "center",
   },
 });

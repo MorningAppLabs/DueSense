@@ -29,7 +29,7 @@ type TabParamList = {
   Home: undefined;
   ShowReport: undefined;
   MoneyOwed: undefined;
-  YourCards: undefined;
+  Cards: undefined;
   Settings: undefined;
 };
 
@@ -323,10 +323,10 @@ const AddSpendingScreen: React.FC = () => {
   }, [navigation, step]);
 
   if (!cards.length) {
-    Alert.alert("No Cards", "Please add a credit card in Your Cards section.", [
+    Alert.alert("No Cards", "Please add a credit card in Cards section.", [
       {
         text: "OK",
-        onPress: () => navigation.navigate("Main", { screen: "YourCards" }),
+        onPress: () => navigation.navigate("Main", { screen: "Cards" }),
       },
     ]);
     return null;
