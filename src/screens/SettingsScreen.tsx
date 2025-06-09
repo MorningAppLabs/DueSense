@@ -416,23 +416,23 @@ const SettingsScreen: React.FC = () => {
             <Text style={styles.buttonText}>Restore Data</Text>
           </TouchableOpacity>
         </Animated.View>
-        <Text style={styles.sectionTitle}>Sync</Text>
-        <View style={styles.toggle}>
-          <Text style={styles.toggleLabel}>Enable Local Sync</Text>
-          <Switch
-            value={localSync}
-            onValueChange={(value) => handleSyncToggle("local", value)}
-            accessibilityLabel="Enable Local Sync"
-          />
-        </View>
-        <View style={styles.toggle}>
-          <Text style={styles.toggleLabel}>Enable Cloud Sync</Text>
-          <Switch
-            value={cloudSync}
-            onValueChange={(value) => handleSyncToggle("cloud", value)}
-            accessibilityLabel="Enable Cloud Sync"
-          />
-        </View>
+        {/* <Text style={styles.sectionTitle}>Sync</Text> */}
+        {/* <View style={styles.toggle}> */}
+        {/* <Text style={styles.toggleLabel}>Enable Local Sync</Text> */}
+        {/* <Switch */}
+        {/* value={localSync} */}
+        {/* onValueChange={(value) => handleSyncToggle("local", value)} */}
+        {/* accessibilityLabel="Enable Local Sync" */}
+        {/* /> */}
+        {/* </View> */}
+        {/* <View style={styles.toggle}> */}
+        {/* <Text style={styles.toggleLabel}>Enable Cloud Sync</Text> */}
+        {/* <Switch */}
+        {/* value={cloudSync} */}
+        {/* onValueChange={(value) => handleSyncToggle("cloud", value)} */}
+        {/* accessibilityLabel="Enable Cloud Sync" */}
+        {/* /> */}
+        {/* </View> */}
         <Text style={styles.sectionTitle}>Notifications</Text>
 
         {/* Due Date Reminder */}

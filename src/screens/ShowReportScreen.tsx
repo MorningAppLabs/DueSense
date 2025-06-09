@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useCallback } from "react"; // Import useCallback
 import {
   SafeAreaView,
   View,
@@ -10,10 +10,11 @@ import {
   Alert,
   Modal,
   Dimensions,
+  ScrollView, // Added ScrollView for modal content
 } from "react-native";
 import { Picker } from "@react-native-picker/picker";
 import { useStore } from "../store/store";
-import { Transaction, Card } from "../types/types";
+import { Transaction, Card, CashbackRule } from "../types/types"; // Import CashbackRule
 import moment from "moment";
 import TransactionCard from "../components/TransactionCard";
 import {
@@ -27,8 +28,18 @@ import {
 const { width } = Dimensions.get("window");
 
 const ShowReportScreen: React.FC = () => {
-  const { cards, transactions, settings, notificationIds, repayments } =
-    useStore();
+  const {
+    cards,
+    transactions,
+    settings,
+    notificationIds,
+    repayments,
+    merchants, // Get merchants from store
+    categories, // Get categories from store
+    addMerchant, // Get addMerchant action
+    addCategory, // Get addCategory action
+    updateTransaction, // Get updateTransaction action
+  } = useStore();
   const [cardId, setCardId] = useState("");
   const [billingCycle, setBillingCycle] = useState("current");
   const [personFilter, setPersonFilter] = useState("");
@@ -37,109 +48,38 @@ const ShowReportScreen: React.FC = () => {
   );
   const [deleteId, setDeleteId] = useState<string | null>(null);
 
-  // Schedule dueDate, billEmi, and general owedMoney reminders when cardId or billingCycle changes
-  useEffect(() => {
-    if (!cardId) return;
+  // State for edited transaction details
+  const [editedAmount, setEditedAmount] = useState("");
+  const [editedMerchant, setEditedMerchant] = useState("");
+  const [useCustomEditedMerchant, setUseCustomEditedMerchant] = useState(false);
+  const [editedDescription, setEditedDescription] = useState("");
+  const [editedCategory, setEditedCategory] = useState("");
+  const [useCustomEditedCategory, setUseCustomEditedCategory] = useState(false);
+  const [editedCashback, setEditedCashback] = useState(0); // State for dynamic cashback
 
-    const card = cards.find((c: Card) => c.id === cardId);
-    if (!card) return;
+  // Get unique merchants from store and cards (similar to YourCardsScreen)
+  const uniqueMerchants = Array.from(
+    new Set([
+      ...merchants.map((m) => m.toUpperCase()),
+      ...cards
+        .flatMap((card) => card.cashbackRules.map((r) => r.merchant))
+        .filter((m) => m)
+        .map((m) => m.toUpperCase()),
+    ])
+  ).sort();
 
-    const scheduleNotifications = async () => {
-      let start: moment.Moment, end: moment.Moment;
-      if (billingCycle === "current") {
-        const currentCycle = getBillingCycleDates(
-          card,
-          moment().format("YYYY-MM-DD")
-        );
-        start = currentCycle.start;
-        end = currentCycle.end;
-      } else {
-        const [startDate, endDate] = billingCycle.split("|");
-        start = moment(startDate, "YYYY-MM-DD");
-        end = moment(endDate, "YYYY-MM-DD");
-      }
+  // Get unique categories from store and cards (similar to YourCardsScreen)
+  const uniqueCategories = Array.from(
+    new Set([
+      ...categories.map((c) => c.toUpperCase()),
+      ...cards
+        .flatMap((card) => card.cashbackRules.flatMap((r) => r.categories))
+        .filter((c) => c)
+        .map((c) => c.toUpperCase()),
+    ])
+  ).sort();
 
-      // Due Date Reminder (on cycle end date)
-      const dueDate = end.toDate();
-      const dueDateKey = `dueDate_${cardId}_${dueDate.toISOString()}`;
-      if (!notificationIds[dueDateKey]) {
-        const identifier = await scheduleDueDateReminder(
-          card.name,
-          dueDate,
-          settings.notificationTimes.dueDate
-        );
-        if (identifier) {
-          useStore.getState().setState({
-            notificationIds: {
-              ...notificationIds,
-              [dueDateKey]: identifier,
-            },
-          });
-        } else {
-          console.warn(
-            `No identifier returned for due date notification: ${dueDateKey}`
-          );
-        }
-      }
-
-      // Bill and EMI Reminder (on cycle end date)
-      const billDate = end.toDate();
-      const billEmiKey = `billEmi_${cardId}_${billDate.toISOString()}`;
-      if (!notificationIds[billEmiKey]) {
-        const identifier = await scheduleBillAndEmiReminder(
-          card.name,
-          billDate,
-          settings.notificationTimes.billEmi
-        );
-        if (identifier) {
-          useStore.getState().setState({
-            notificationIds: {
-              ...notificationIds,
-              [billEmiKey]: identifier,
-            },
-          });
-        } else {
-          console.warn(
-            `No identifier returned for bill/EMI notification: ${billEmiKey}`
-          );
-        }
-      }
-
-      // General Owed-Money Reminder (10 days after cycle end)
-      const owedDate = moment(end).add(10, "days").toDate();
-      const owedKey = `generalOwedMoney_${owedDate.toISOString()}`;
-      if (!notificationIds[owedKey]) {
-        const identifier = await scheduleGeneralOwedMoneyReminder(
-          owedDate,
-          settings.notificationTimes.owedMoney
-        );
-        if (identifier) {
-          useStore.getState().setState({
-            notificationIds: {
-              ...notificationIds,
-              [owedKey]: identifier,
-            },
-          });
-        } else {
-          console.warn(
-            `No identifier returned for general owed money notification: ${owedKey}`
-          );
-        }
-      }
-    };
-
-    scheduleNotifications().catch((error) => {
-      console.error("Failed to schedule notifications:", error);
-    });
-  }, [
-    cardId,
-    billingCycle,
-    cards,
-    settings.notificationTimes,
-    notificationIds,
-  ]);
-
-  // Compute billing cycle for a given date
+  // Calculate billing cycle dates
   const getBillingCycleDates = (card: Card, transactionDate: string) => {
     const date = moment(transactionDate, "YYYY-MM-DD");
     const year = date.year();
@@ -265,7 +205,8 @@ const ShowReportScreen: React.FC = () => {
   };
 
   // Calculate summary for the selected billing cycle
-  const getSummary = () => {
+  const getSummary = useCallback(() => {
+    // Memoize with useCallback
     const card = cards.find((c: Card) => c.id === cardId);
     if (!card) {
       return { totalSpent: 0, unbilled: 0, repaid: 0, totalCashback: 0 };
@@ -285,7 +226,6 @@ const ShowReportScreen: React.FC = () => {
       end = moment(endDate, "YYYY-MM-DD");
     }
 
-    // Filter transactions by billing cycle
     const cardTransactions = transactions.filter(
       (t: Transaction) =>
         t.cardId === cardId &&
@@ -296,7 +236,6 @@ const ShowReportScreen: React.FC = () => {
       0
     );
 
-    // Filter repayments by billing cycle
     const totalRepaid = repayments
       .filter(
         (r: { cardId: string; billingCycleStart?: string }) =>
@@ -306,7 +245,6 @@ const ShowReportScreen: React.FC = () => {
       )
       .reduce((sum: number, r: { amount: number }) => sum + r.amount, 0);
 
-    // Calculate total cashback
     const totalCashback = cardTransactions.reduce(
       (sum: number, t: Transaction) => sum + (t.cashback || 0),
       0
@@ -318,16 +256,241 @@ const ShowReportScreen: React.FC = () => {
       repaid: totalRepaid,
       totalCashback,
     };
-  };
+  }, [cardId, billingCycle, cards, transactions, repayments]); // Add dependencies
+
+  // Calculate cashback for the edited transaction
+  const calculateEditedCashback = useCallback(() => {
+    // Memoize with useCallback
+    if (!editTransaction || !editedAmount || !editedMerchant || !editedCategory)
+      return 0;
+
+    const card = cards.find((c: Card) => c.id === editTransaction.cardId);
+    if (!card || !card.cashbackRules.length) return 0;
+
+    const rule = card.cashbackRules.find(
+      (r) =>
+        (r.onlineOffline === editTransaction.onlineOffline ||
+          r.onlineOffline === "Both") &&
+        r.paymentType === editTransaction.paymentType &&
+        (!r.merchant ||
+          r.merchant.toUpperCase() === editedMerchant.toUpperCase()) &&
+        (!r.categories.length ||
+          r.categories.includes(editedCategory.toUpperCase()))
+    );
+
+    if (!rule) return 0;
+
+    // Need to consider the billing cycle of the transaction date for the limit calculation
+    const { start, end } = getBillingCycleDates(card, editTransaction.date);
+
+    const earned = card.cashbackRules
+      .filter(
+        (r) =>
+          r === rule && // Match the specific rule
+          (r.onlineOffline === editTransaction.onlineOffline ||
+            r.onlineOffline === "Both") &&
+          r.paymentType === editTransaction.paymentType &&
+          (!r.merchant ||
+            r.merchant.toUpperCase() === editedMerchant.toUpperCase()) &&
+          (!r.categories.length ||
+            r.categories.includes(editedCategory.toUpperCase()))
+      )
+      .reduce((sum, r) => {
+        const transactionsInCycle = useStore.getState().transactions.filter(
+          (t) =>
+            t.cardId === card.id &&
+            moment(t.date, "YYYY-MM-DD").isBetween(
+              start,
+              end,
+              undefined,
+              "[]"
+            ) &&
+            // Only include other transactions matching this rule for the limit calculation
+            t.id !== editTransaction.id && // Exclude the current transaction being edited
+            (r.onlineOffline === t.onlineOffline ||
+              r.onlineOffline === "Both") &&
+            r.paymentType === t.paymentType &&
+            (!r.merchant ||
+              r.merchant.toUpperCase() === t.merchant.toUpperCase()) &&
+            (!r.categories.length ||
+              r.categories.includes(t.category.toUpperCase()))
+        );
+        return (
+          sum + transactionsInCycle.reduce((s, t) => s + (t.cashback || 0), 0)
+        );
+      }, 0);
+
+    const potentialCashback = (Number(editedAmount) * rule.percentage) / 100;
+    const remaining = Math.max(0, (rule.limit || Infinity) - earned);
+
+    return Math.min(potentialCashback, remaining);
+  }, [
+    editTransaction,
+    editedAmount,
+    editedMerchant,
+    editedCategory,
+    cards,
+    transactions,
+  ]); // Add dependencies
+
+  // Effect to update edited cashback when relevant fields change
+  useEffect(() => {
+    setEditedCashback(calculateEditedCashback());
+  }, [editedAmount, editedMerchant, editedCategory, calculateEditedCashback]); // Add dependencies
+
+  // Schedule dueDate, billEmi, and general owedMoney reminders when cardId or billingCycle changes
+  useEffect(() => {
+    if (!cardId) return;
+
+    const card = cards.find((c: Card) => c.id === cardId);
+    if (!card) return;
+
+    const scheduleNotifications = async () => {
+      let start: moment.Moment, end: moment.Moment;
+      if (billingCycle === "current") {
+        const currentCycle = getBillingCycleDates(
+          card,
+          moment().format("YYYY-MM-DD")
+        );
+        start = currentCycle.start;
+        end = currentCycle.end;
+      } else {
+        const [startDate, endDate] = billingCycle.split("|");
+        start = moment(startDate, "YYYY-MM-DD");
+        end = moment(endDate, "YYYY-MM-DD");
+      }
+
+      // Due Date Reminder (on cycle end date)
+      const dueDate = end.toDate();
+      const dueDateKey = `dueDate_${cardId}_${dueDate.toISOString()}`;
+      if (!notificationIds[dueDateKey]) {
+        const identifier = await scheduleDueDateReminder(
+          card.name,
+          dueDate,
+          settings.notificationTimes.dueDate
+        );
+        if (identifier) {
+          useStore.getState().setState({
+            notificationIds: {
+              ...notificationIds,
+              [dueDateKey]: identifier,
+            },
+          });
+        } else {
+          console.warn(
+            `No identifier returned for due date notification: ${dueDateKey}`
+          );
+        }
+      }
+
+      // Bill and EMI Reminder (on cycle end date)
+      const billDate = end.toDate();
+      const billEmiKey = `billEmi_${cardId}_${billDate.toISOString()}`;
+      if (!notificationIds[billEmiKey]) {
+        const identifier = await scheduleBillAndEmiReminder(
+          card.name,
+          billDate,
+          settings.notificationTimes.billEmi
+        );
+        if (identifier) {
+          useStore.getState().setState({
+            notificationIds: {
+              ...notificationIds,
+              [billEmiKey]: identifier,
+            },
+          });
+        } else {
+          console.warn(
+            `No identifier returned for bill/EMI notification: ${billEmiKey}`
+          );
+        }
+      }
+
+      // General Owed-Money Reminder (10 days after cycle end)
+      const owedDate = moment(end).add(10, "days").toDate();
+      const owedKey = `generalOwedMoney_${owedDate.toISOString()}`;
+      if (!notificationIds[owedKey]) {
+        const identifier = await scheduleGeneralOwedMoneyReminder(
+          owedDate,
+          settings.notificationTimes.owedMoney
+        );
+        if (identifier) {
+          useStore.getState().setState({
+            notificationIds: {
+              ...notificationIds,
+              [owedKey]: identifier,
+            },
+          });
+        } else {
+          console.warn(
+            `No identifier returned for general owed money notification: ${owedKey}`
+          );
+        }
+      }
+    };
+
+    scheduleNotifications().catch((error) => {
+      console.error("Failed to schedule notifications:", error);
+    });
+  }, [
+    cardId,
+    billingCycle,
+    cards,
+    settings.notificationTimes,
+    notificationIds,
+    getBillingCycleDates, // Add dependency
+  ]);
 
   // Handle edit
   const handleEdit = (transaction: Transaction) => {
     setEditTransaction(transaction);
+    setEditedAmount(transaction.amount.toString());
+    setEditedMerchant(transaction.merchant);
+    setUseCustomEditedMerchant(
+      !uniqueMerchants.includes(transaction.merchant.toUpperCase()) &&
+        transaction.merchant !== ""
+    );
+    setEditedDescription(transaction.description);
+    setEditedCategory(transaction.category);
+    setUseCustomEditedCategory(
+      !uniqueCategories.includes(transaction.category.toUpperCase()) &&
+        transaction.category !== ""
+    );
+    // Cashback will be calculated by the useEffect based on these values
   };
 
   // Save edited transaction
   const handleSaveEdit = async () => {
-    if (!editTransaction) return;
+    if (
+      !editTransaction ||
+      !editedAmount ||
+      !editedMerchant ||
+      !editedDescription ||
+      !editedCategory
+    ) {
+      Alert.alert("Error", "Please fill all required fields.");
+      return;
+    }
+
+    // Add new custom merchant or category to the store if applicable
+    if (useCustomEditedMerchant && editedMerchant) {
+      addMerchant(editedMerchant.toUpperCase());
+    }
+    if (useCustomEditedCategory && editedCategory) {
+      addCategory(editedCategory.toUpperCase());
+    }
+
+    const updatedTransaction: Transaction = {
+      ...editTransaction,
+      amount: Number(editedAmount),
+      merchant: editedMerchant.toUpperCase(),
+      description: editedDescription.toUpperCase(),
+      category: editedCategory.toUpperCase(),
+      cashback: editedCashback, // Use the dynamically calculated cashback
+    };
+
+    // Update the transaction in the store using the new action
+    updateTransaction(updatedTransaction);
 
     const originalTransaction = transactions.find(
       (t) => t.id === editTransaction.id
@@ -336,11 +499,11 @@ const ShowReportScreen: React.FC = () => {
       const owedMoneyKey = `owedMoney_${editTransaction.id}`;
       const shouldCancel =
         (originalTransaction.forWhom === "Someone Else" &&
-          (editTransaction.forWhom !== "Someone Else" ||
-            editTransaction.repaid)) ||
+          (updatedTransaction.forWhom !== "Someone Else" || // Use updatedTransaction
+            updatedTransaction.repaid)) || // Use updatedTransaction
         (originalTransaction.forWhom === "Someone Else" &&
           !originalTransaction.repaid &&
-          editTransaction.repaid);
+          updatedTransaction.repaid); // Use updatedTransaction
 
       if (shouldCancel && notificationIds[owedMoneyKey]) {
         await cancelNotificationById(notificationIds[owedMoneyKey]);
@@ -351,16 +514,16 @@ const ShowReportScreen: React.FC = () => {
       }
 
       if (
-        editTransaction.forWhom === "Someone Else" &&
-        !editTransaction.repaid &&
+        updatedTransaction.forWhom === "Someone Else" && // Use updatedTransaction
+        !updatedTransaction.repaid && // Use updatedTransaction
         (originalTransaction.forWhom !== "Someone Else" ||
           originalTransaction.repaid)
       ) {
         const identifier = await scheduleOwedMoneyReminder(
-          editTransaction.personName || "",
-          editTransaction.amount,
-          new Date(editTransaction.date),
-          editTransaction.id,
+          updatedTransaction.personName || "", // Use updatedTransaction
+          updatedTransaction.amount, // Use updatedTransaction
+          new Date(updatedTransaction.date), // Use updatedTransaction
+          updatedTransaction.id, // Use updatedTransaction
           settings.notificationTimes.owedMoney
         );
         if (identifier) {
@@ -374,12 +537,7 @@ const ShowReportScreen: React.FC = () => {
       }
     }
 
-    useStore.setState((state: { transactions: Transaction[] }) => ({
-      transactions: state.transactions.map((t) =>
-        t.id === editTransaction.id ? editTransaction : t
-      ),
-    }));
-    setEditTransaction(null);
+    setEditTransaction(null); // Close the modal
     Alert.alert("Success", "Transaction updated successfully!");
   };
 
@@ -538,61 +696,139 @@ const ShowReportScreen: React.FC = () => {
           onRequestClose={() => setEditTransaction(null)}
         >
           <View style={styles.modalOverlay}>
-            <View style={styles.modal}>
-              <Text style={styles.modalTitle}>Edit Transaction</Text>
-              <TextInput
-                style={styles.input}
-                placeholder="Amount"
-                keyboardType="numeric"
-                value={editTransaction?.amount?.toString()}
-                onChangeText={(text) =>
-                  setEditTransaction(
-                    (prev) => prev && { ...prev, amount: Number(text) }
-                  )
-                }
-                accessibilityLabel="Transaction Amount"
-              />
-              <TextInput
-                style={styles.input}
-                placeholder="Merchant"
-                value={editTransaction?.merchant}
-                onChangeText={(text) =>
-                  setEditTransaction(
-                    (prev) => prev && { ...prev, merchant: text }
-                  )
-                }
-                accessibilityLabel="Transaction Merchant"
-              />
-              <TextInput
-                style={styles.input}
-                placeholder="Description"
-                value={editTransaction?.description}
-                onChangeText={(text) =>
-                  setEditTransaction(
-                    (prev) => prev && { ...prev, description: text }
-                  )
-                }
-                accessibilityLabel="Transaction Description"
-              />
-              <View style={styles.modalButtons}>
-                <TouchableOpacity
-                  style={styles.modalButton}
-                  onPress={() => setEditTransaction(null)}
-                  accessibilityLabel="Cancel Edit"
-                  accessibilityRole="button"
-                >
-                  <Text style={styles.modalButtonText}>Cancel</Text>
-                </TouchableOpacity>
-                <TouchableOpacity
-                  style={styles.modalButton}
-                  onPress={handleSaveEdit}
-                  accessibilityLabel="Save Edit"
-                  accessibilityRole="button"
-                >
-                  <Text style={styles.modalButtonText}>Save</Text>
-                </TouchableOpacity>
+            <ScrollView contentContainerStyle={styles.modalScrollContent}>
+              <View style={styles.modal}>
+                <Text style={styles.modalTitle}>Edit Transaction</Text>
+
+                {/* Amount Input */}
+                <Text style={styles.label}>Amount</Text>
+                <TextInput
+                  style={styles.input}
+                  placeholder="Amount"
+                  keyboardType="numeric"
+                  value={editedAmount}
+                  onChangeText={setEditedAmount}
+                  accessibilityLabel="Transaction Amount"
+                />
+
+                {/* Merchant Selection */}
+                <Text style={styles.label}>Merchant</Text>
+                <View style={styles.pickerContainer}>
+                  <Picker
+                    selectedValue={
+                      useCustomEditedMerchant ? "Other" : editedMerchant
+                    }
+                    onValueChange={(value) => {
+                      setEditedMerchant(
+                        value === "Other" ? "" : value.toUpperCase()
+                      );
+                      setUseCustomEditedMerchant(value === "Other");
+                    }}
+                    style={styles.picker}
+                    accessibilityLabel="Select Merchant"
+                    accessibilityRole="combobox"
+                  >
+                    <Picker.Item label="Select Merchant" value="" />
+                    {uniqueMerchants.map((m) => (
+                      <Picker.Item key={m} label={m} value={m} />
+                    ))}
+                    <Picker.Item label="Other" value="Other" />
+                  </Picker>
+                </View>
+
+                {/* Custom Merchant Input */}
+                {useCustomEditedMerchant && (
+                  <>
+                    <Text style={styles.label}>Custom Merchant Name</Text>
+                    <TextInput
+                      style={styles.input}
+                      placeholder="e.g., AMAZON"
+                      value={editedMerchant}
+                      onChangeText={(text) =>
+                        setEditedMerchant(text.replace(/,/g, "").toUpperCase())
+                      }
+                      accessibilityLabel="Custom Merchant Name"
+                    />
+                  </>
+                )}
+
+                {/* Description Input */}
+                <Text style={styles.label}>Description</Text>
+                <TextInput
+                  style={styles.input}
+                  placeholder="e.g., GROCERY SHOPPING"
+                  value={editedDescription}
+                  onChangeText={setEditedDescription}
+                  accessibilityLabel="Transaction Description"
+                />
+
+                {/* Category Selection */}
+                <Text style={styles.label}>Category</Text>
+                <View style={styles.pickerContainer}>
+                  <Picker
+                    selectedValue={
+                      useCustomEditedCategory ? "Other" : editedCategory
+                    }
+                    onValueChange={(value) => {
+                      setEditedCategory(
+                        value === "Other" ? "" : value.toUpperCase()
+                      );
+                      setUseCustomEditedCategory(value === "Other");
+                    }}
+                    style={styles.picker}
+                    accessibilityLabel="Select Category"
+                    accessibilityRole="combobox"
+                  >
+                    <Picker.Item label="Select Category" value="" />
+                    {uniqueCategories.map((c) => (
+                      <Picker.Item key={c} label={c} value={c} />
+                    ))}
+                    <Picker.Item label="Other" value="Other" />
+                  </Picker>
+                </View>
+
+                {/* Custom Category Input */}
+                {useCustomEditedCategory && (
+                  <>
+                    <Text style={styles.label}>Custom Category Name</Text>
+                    <TextInput
+                      style={styles.input}
+                      placeholder="e.g., GROCERY"
+                      value={editedCategory}
+                      onChangeText={(text) =>
+                        setEditedCategory(text.replace(/,/g, "").toUpperCase())
+                      }
+                      accessibilityLabel="Custom Category Name"
+                    />
+                  </>
+                )}
+
+                {/* Display Calculated Cashback */}
+                <Text style={styles.summaryText}>
+                  Calculated Cashback: {settings.currency}
+                  {editedCashback.toFixed(2)}
+                </Text>
+
+                <View style={styles.modalButtons}>
+                  <TouchableOpacity
+                    style={styles.modalButton}
+                    onPress={() => setEditTransaction(null)}
+                    accessibilityLabel="Cancel Edit"
+                    accessibilityRole="button"
+                  >
+                    <Text style={styles.modalButtonText}>Cancel</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity
+                    style={styles.modalButton}
+                    onPress={handleSaveEdit}
+                    accessibilityLabel="Save Edit"
+                    accessibilityRole="button"
+                  >
+                    <Text style={styles.modalButtonText}>Save</Text>
+                  </TouchableOpacity>
+                </View>
               </View>
-            </View>
+            </ScrollView>
           </View>
         </Modal>
       </View>
@@ -644,6 +880,12 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     alignItems: "center",
   },
+  modalScrollContent: {
+    // Style for ScrollView content
+    flexGrow: 1,
+    justifyContent: "center",
+    paddingVertical: 20, // Add some vertical padding
+  },
   modal: {
     backgroundColor: "#FFFFFF",
     borderRadius: 12,
@@ -671,6 +913,7 @@ const styles = StyleSheet.create({
   modalButtons: {
     flexDirection: "row",
     justifyContent: "space-between",
+    marginTop: 12, // Add some space above buttons
   },
   modalButton: {
     flex: 1,
@@ -697,6 +940,13 @@ const styles = StyleSheet.create({
     fontFamily: "Inter_400Regular",
     fontSize: 16,
     color: "#1A1A1A",
+  },
+  label: {
+    // Added label style for modal inputs
+    fontFamily: "Inter_600SemiBold",
+    fontSize: 14,
+    color: "#1A1A1A",
+    marginBottom: 8,
   },
 });
 

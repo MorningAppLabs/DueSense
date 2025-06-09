@@ -202,7 +202,7 @@ const HomeScreen: React.FC = () => {
         </View>
         <View style={styles.overview}>
           <Text style={styles.sectionTitle}>
-            Transaction & Cashback (Current Billing Cycle)
+            Transaction & Cashback (Current)
           </Text>
           {cards.length === 0 ? (
             <Text style={styles.noData}>No cards added yet.</Text>
@@ -262,9 +262,7 @@ const HomeScreen: React.FC = () => {
               </View>
             ))
           )}
-          <Text style={styles.sectionTitle}>
-            Money Owed (Current + Past Billing Cycles)
-          </Text>
+          <Text style={styles.sectionTitle}>Money Owed (Current + Past)</Text>
           {getOwedByPerson().length === 0 ? (
             <Text style={styles.noData}>No money owed.</Text>
           ) : (
