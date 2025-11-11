@@ -10,6 +10,7 @@ Short fixes and improvements:
 - Clarified EMI instruction wording in Add Spending flow.
 - Resolved notification key collisions and removed duplicate Bill/EMI reminder (consolidated to Due Date reminder).
 - Added delete-card/transaction confirmations and Settings descriptions for notifications.
+- **Critical:** Fixed owed-money transaction repayment persistence — transactions marked as repaid now stay repaid after app restart.
 `.trim(),
   },
   {

@@ -62,6 +62,8 @@ const MoneyOwedScreen: React.FC = () => {
   };
 
   const handleMarkRepaid = async (id: string) => {
+    const { transactions, updateTransaction } = useStore.getState();
+    
     // Cancel associated notification
     const notificationId = notificationIds[`owedMoney_${id}`];
     if (notificationId) {
@@ -73,12 +75,11 @@ const MoneyOwedScreen: React.FC = () => {
       });
     }
 
-    // Mark transaction as repaid
-    useStore.setState((state: { transactions: Transaction[] }) => ({
-      transactions: state.transactions.map((t) =>
-        t.id === id ? { ...t, repaid: true } : t
-      ),
-    }));
+    // Mark transaction as repaid using updateTransaction to persist to storage
+    const transaction = transactions.find((t) => t.id === id);
+    if (transaction) {
+      updateTransaction({ ...transaction, repaid: true });
+    }
     Alert.alert("Success", "Transaction marked as repaid!");
   };
 
