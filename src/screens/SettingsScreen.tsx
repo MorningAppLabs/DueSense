@@ -437,7 +437,12 @@ const SettingsScreen: React.FC = () => {
 
         {/* Due Date Reminder */}
         <View style={styles.toggle}>
-          <Text style={styles.toggleLabel}>Due Date Reminder</Text>
+          <View style={styles.toggleLabelContainer}>
+            <Text style={styles.toggleLabel}>Due Date Reminder</Text>
+            <Text style={styles.toggleDescription}>
+              Get notified when your bill is ready for payment (on billing cycle end date)
+            </Text>
+          </View>
           <Switch
             value={dueDateReminderEnabled}
             onValueChange={(value) =>
@@ -476,7 +481,12 @@ const SettingsScreen: React.FC = () => {
 
         {/* Owed Money Reminder */}
         <View style={styles.toggle}>
-          <Text style={styles.toggleLabel}>Owed-Money Reminder</Text>
+          <View style={styles.toggleLabelContainer}>
+            <Text style={styles.toggleLabel}>Owed-Money Reminder</Text>
+            <Text style={styles.toggleDescription}>
+              Get notified to collect money owed from friends (10 days after bill generation)
+            </Text>
+          </View>
           <Switch
             value={owedMoneyReminderEnabled}
             onValueChange={(value) =>
@@ -517,7 +527,12 @@ const SettingsScreen: React.FC = () => {
 
         {/* Bill and EMI Reminder */}
         <View style={styles.toggle}>
-          <Text style={styles.toggleLabel}>Bill and EMI Reminder</Text>
+          <View style={styles.toggleLabelContainer}>
+            <Text style={styles.toggleLabel}>Bill and EMI Reminder</Text>
+            <Text style={styles.toggleDescription}>
+              Get notified for bill and EMI payments due (on billing cycle end date)
+            </Text>
+          </View>
           <Switch
             value={billEmiReminderEnabled}
             onValueChange={(value) =>
@@ -872,6 +887,17 @@ const styles = StyleSheet.create({
     fontFamily: "Inter_400Regular",
     fontSize: 16,
     color: "#007AFF",
+  },
+  toggleLabelContainer: {
+    flex: 1,
+    marginRight: 12,
+  },
+  toggleDescription: {
+    fontFamily: "Inter_400Regular",
+    fontSize: 13,
+    color: "#666666",
+    marginTop: 4,
+    lineHeight: 18,
   },
 });
 

@@ -19,7 +19,6 @@ import moment from "moment";
 import TransactionCard from "../components/TransactionCard";
 import {
   scheduleDueDateReminder,
-  scheduleBillAndEmiReminder,
   cancelNotificationById,
   scheduleOwedMoneyReminder,
   scheduleGeneralOwedMoneyReminder,
@@ -383,28 +382,8 @@ const ShowReportScreen: React.FC = () => {
         }
       }
 
-      // Bill and EMI Reminder (on cycle end date)
-      const billDate = end.toDate();
-      const billEmiKey = `billEmi_${cardId}_${start.format("YYYY-MM-DD")}`;
-      if (!notificationIds[billEmiKey]) {
-        const identifier = await scheduleBillAndEmiReminder(
-          card.name,
-          billDate,
-          settings.notificationTimes.billEmi
-        );
-        if (identifier) {
-          useStore.getState().setState({
-            notificationIds: {
-              ...notificationIds,
-              [billEmiKey]: identifier,
-            },
-          });
-        } else {
-          console.warn(
-            `No identifier returned for bill/EMI notification: ${billEmiKey}`
-          );
-        }
-      }
+      // Removed Bill/EMI reminder to avoid duplicate notifications.
+      // Bill/EMI notifications were consolidated; due date reminder is used instead.
 
       // General Owed-Money Reminder (10 days after cycle end)
       const owedDate = moment(end).add(10, "days").toDate();

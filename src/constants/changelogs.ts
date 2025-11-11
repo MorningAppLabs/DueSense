@@ -1,5 +1,18 @@
 export const changelogs = [
   {
+    version: "1.1.1",
+    date: "11 November 2025",
+    description: `
+Short fixes and improvements:
+
+- Fixed Money Owed person filter bug so the correct person list is shown.
+- Corrected billing-cycle validation during card edit (handles cross-month cycles).
+- Clarified EMI instruction wording in Add Spending flow.
+- Resolved notification key collisions and removed duplicate Bill/EMI reminder (consolidated to Due Date reminder).
+- Added delete-card/transaction confirmations and Settings descriptions for notifications.
+`.trim(),
+  },
+  {
     // Add this new entry
     version: "1.1.0", // Consider updating this to your next version number
     date: "09 June 2025", // Replace with the actual date of this release
