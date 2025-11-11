@@ -48,7 +48,7 @@ const MoneyOwedScreen: React.FC = () => {
     );
     if (personFilter) {
       filtered = filtered.filter(
-        (t: Transaction) => t.personName === t.personName
+        (t: Transaction) => t.personName === personFilter
       );
     }
     return filtered.sort((a, b) => b.date.localeCompare(a.date));

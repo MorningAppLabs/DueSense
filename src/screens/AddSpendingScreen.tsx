@@ -453,9 +453,9 @@ const AddSpendingScreen: React.FC = () => {
                   onChangeText={setInterest}
                 />
                 <Text style={styles.instruction}>
-                  For EMI, enter the monthly amount and duration. The
-                  transaction will be auto-added each month until the EMI
-                  completes. Do not add EMI manually each month.
+                  For EMI, enter the monthly amount and duration. You will need
+                  to manually add EMI transactions each month until the EMI
+                  completes, or track the monthly payment separately.
                 </Text>
                 <Text style={styles.warning}>
                   Interest amount is a fixed value, not a percentage.

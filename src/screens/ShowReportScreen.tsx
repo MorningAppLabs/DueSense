@@ -362,7 +362,7 @@ const ShowReportScreen: React.FC = () => {
 
       // Due Date Reminder (on cycle end date)
       const dueDate = end.toDate();
-      const dueDateKey = `dueDate_${cardId}_${dueDate.toISOString()}`;
+      const dueDateKey = `dueDate_${cardId}_${start.format("YYYY-MM-DD")}`;
       if (!notificationIds[dueDateKey]) {
         const identifier = await scheduleDueDateReminder(
           card.name,
@@ -385,7 +385,7 @@ const ShowReportScreen: React.FC = () => {
 
       // Bill and EMI Reminder (on cycle end date)
       const billDate = end.toDate();
-      const billEmiKey = `billEmi_${cardId}_${billDate.toISOString()}`;
+      const billEmiKey = `billEmi_${cardId}_${start.format("YYYY-MM-DD")}`;
       if (!notificationIds[billEmiKey]) {
         const identifier = await scheduleBillAndEmiReminder(
           card.name,
@@ -408,7 +408,7 @@ const ShowReportScreen: React.FC = () => {
 
       // General Owed-Money Reminder (10 days after cycle end)
       const owedDate = moment(end).add(10, "days").toDate();
-      const owedKey = `generalOwedMoney_${owedDate.toISOString()}`;
+      const owedKey = `generalOwedMoney_${cardId}_${end.format("YYYY-MM-DD")}`;
       if (!notificationIds[owedKey]) {
         const identifier = await scheduleGeneralOwedMoneyReminder(
           owedDate,
