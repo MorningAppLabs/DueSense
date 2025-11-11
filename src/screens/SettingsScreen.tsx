@@ -363,7 +363,7 @@ const SettingsScreen: React.FC = () => {
 
   const handleJoinTelegram = async () => {
     try {
-      await Linking.openURL("https://t.me/duesense");
+      await Linking.openURL("https://t.me/+v5E86MvprqUwNzhl");
     } catch (error) {
       Alert.alert("Error", "Failed to open Telegram.");
     }
