@@ -7,6 +7,7 @@ import { StyleSheet, View, Text } from "react-native";
 import { SafeAreaProvider } from "react-native-safe-area-context";
 import { useFonts } from "expo-font";
 import * as SplashScreen from "expo-splash-screen";
+import { checkForUpdates } from "./src/utils/updateChecker";
 
 // Prevent splash screen from auto-hiding
 SplashScreen.preventAutoHideAsync();
@@ -56,6 +57,11 @@ export default function App() {
         await loadData();
         console.log("Data loaded successfully");
         await SplashScreen.hideAsync();
+        
+        // Check for updates after app loads (silent mode)
+        setTimeout(() => {
+          checkForUpdates(true);
+        }, 2000); // Wait 2 seconds after launch to check for updates
       } catch (error: any) {
         console.error("loadData error:", error.message, error.stack);
         await SplashScreen.hideAsync();

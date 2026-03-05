@@ -18,13 +18,15 @@ import * as FileSystem from "expo-file-system";
 import * as Sharing from "expo-sharing";
 import * as DocumentPicker from "expo-document-picker";
 import * as Linking from "expo-linking";
-import * as Notifications from "expo-notifications"; // Added for permission requests
+import * as Notifications from "expo-notifications";
+import * as Application from "expo-application";
 import { useStore } from "../store/store";
 import {
   storeNotificationPreference,
   getNotificationPreference,
   DEFAULT_NOTIFICATION_TIME,
 } from "../utils/notifications";
+import { checkForUpdates } from "../utils/updateChecker";
 import DateTimePicker from "@react-native-community/datetimepicker";
 import { currencies } from "../constants/currencies";
 import { privacyPolicy } from "../constants/privacyPolicy";
@@ -354,19 +356,23 @@ const SettingsScreen: React.FC = () => {
   const handleContact = async () => {
     try {
       await Linking.openURL(
-        "mailto:morningshows.me@gmail.com?subject=DueSense Bug/Feature Request"
+        "mailto:morningapplabs@gmail.com?subject=DueSense Bug Report/Feature Request"
       );
     } catch (error) {
       Alert.alert("Error", "Failed to open email app.");
     }
   };
 
-  const handleJoinTelegram = async () => {
+  const handleSupportDeveloper = async () => {
     try {
-      await Linking.openURL("https://t.me/+v5E86MvprqUwNzhl");
+      await Linking.openURL("https://buymeacoffee.com/morningapplabs"); // Replace with your Buy Me a Coffee link
     } catch (error) {
-      Alert.alert("Error", "Failed to open Telegram.");
+      Alert.alert("Error", "Failed to open link.");
     }
+  };
+
+  const handleCheckForUpdates = async () => {
+    await checkForUpdates(false);
   };
 
   return (
@@ -569,7 +575,54 @@ const SettingsScreen: React.FC = () => {
           </View>
         )}
 
-        <Text style={styles.sectionTitle}>Privacy Policy</Text>
+        <Text style={styles.sectionTitle}>App Info</Text>
+        
+        <View style={styles.infoRow}>
+          <Text style={styles.infoLabel}>Developer:</Text>
+          <Text style={styles.infoValue}>MorningAppLabs</Text>
+        </View>
+        
+        <View style={styles.infoRow}>
+          <Text style={styles.infoLabel}>App Version:</Text>
+          <Text style={styles.infoValue}>
+            {Application.nativeApplicationVersion || "1.0.0"}
+          </Text>
+        </View>
+
+        <Animated.View
+          style={[
+            styles.button,
+            { backgroundColor: "#FF6F00", transform: [{ scale }] },
+          ]}
+        >
+          <TouchableOpacity
+            onPress={handleSupportDeveloper}
+            onPressIn={handlePressIn}
+            onPressOut={handlePressOut}
+            accessibilityLabel="Support the Developer"
+            accessibilityRole="button"
+          >
+            <Text style={styles.buttonText}>☕ Support the Developer</Text>
+          </TouchableOpacity>
+        </Animated.View>
+
+        <Animated.View
+          style={[
+            styles.button,
+            { backgroundColor: "#4CAF50", transform: [{ scale }] },
+          ]}
+        >
+          <TouchableOpacity
+            onPress={handleCheckForUpdates}
+            onPressIn={handlePressIn}
+            onPressOut={handlePressOut}
+            accessibilityLabel="Check for Updates"
+            accessibilityRole="button"
+          >
+            <Text style={styles.buttonText}>🔄 Check for Updates</Text>
+          </TouchableOpacity>
+        </Animated.View>
+
         <Animated.View
           style={[
             styles.button,
@@ -580,13 +633,13 @@ const SettingsScreen: React.FC = () => {
             onPress={() => setShowPrivacy(true)}
             onPressIn={handlePressIn}
             onPressOut={handlePressOut}
-            accessibilityLabel="View Privacy Policy"
+            accessibilityLabel="Privacy Policy"
             accessibilityRole="button"
           >
-            <Text style={styles.buttonText}>View Privacy Policy</Text>
+            <Text style={styles.buttonText}>Privacy Policy</Text>
           </TouchableOpacity>
         </Animated.View>
-        <Text style={styles.sectionTitle}>Terms of Use</Text>
+
         <Animated.View
           style={[
             styles.button,
@@ -597,17 +650,13 @@ const SettingsScreen: React.FC = () => {
             onPress={() => setShowTerms(true)}
             onPressIn={handlePressIn}
             onPressOut={handlePressOut}
-            accessibilityLabel="View Terms of Use"
+            accessibilityLabel="Terms of Use"
             accessibilityRole="button"
           >
-            <Text style={styles.buttonText}>View Terms of Use</Text>
+            <Text style={styles.buttonText}>Terms of Use</Text>
           </TouchableOpacity>
         </Animated.View>
-        <Text style={styles.sectionTitle}>About</Text>
-        <Text style={styles.aboutText}>Developer: Supravat</Text>
-        <Text style={styles.aboutText}>
-          App Version: {changelogs[0]?.version || "1.0.0"}
-        </Text>
+
         <Animated.View
           style={[
             styles.button,
@@ -618,35 +667,25 @@ const SettingsScreen: React.FC = () => {
             onPress={() => setShowChangelogs(true)}
             onPressIn={handlePressIn}
             onPressOut={handlePressOut}
-            accessibilityLabel="View Changelogs"
+            accessibilityLabel="Changelog"
             accessibilityRole="button"
           >
-            <Text style={styles.buttonText}>View Changelogs</Text>
+            <Text style={styles.buttonText}>Changelog</Text>
           </TouchableOpacity>
         </Animated.View>
+
         <Animated.View style={[styles.button, { transform: [{ scale }] }]}>
           <TouchableOpacity
             onPress={handleContact}
             onPressIn={handlePressIn}
             onPressOut={handlePressOut}
-            accessibilityLabel="Email Developer"
+            accessibilityLabel="Bug Report/Feature Request"
             accessibilityRole="button"
           >
-            <Text style={styles.buttonText}>Email Developer</Text>
+            <Text style={styles.buttonText}>🐛 Bug Report/Feature Request</Text>
           </TouchableOpacity>
         </Animated.View>
-        <Animated.View style={[styles.button, { transform: [{ scale }] }]}>
-          <TouchableOpacity
-            onPress={handleJoinTelegram}
-            onPressIn={handlePressIn}
-            onPressOut={handlePressOut}
-            accessibilityLabel="Join Telegram"
-            accessibilityRole="button"
-          >
-            <Text style={styles.buttonText}>Join Telegram</Text>
-          </TouchableOpacity>
-        </Animated.View>
-        <Text style={styles.sectionTitle}>Acknowledgments</Text>
+
         <Animated.View
           style={[
             styles.button,
@@ -657,12 +696,13 @@ const SettingsScreen: React.FC = () => {
             onPress={() => setShowAcknowledgments(true)}
             onPressIn={handlePressIn}
             onPressOut={handlePressOut}
-            accessibilityLabel="View Acknowledgments"
+            accessibilityLabel="Acknowledgments"
             accessibilityRole="button"
           >
-            <Text style={styles.buttonText}>View Acknowledgments</Text>
+            <Text style={styles.buttonText}>Acknowledgments</Text>
           </TouchableOpacity>
         </Animated.View>
+
         <Modal
           visible={showPrivacy}
           animationType="slide"
@@ -898,6 +938,27 @@ const styles = StyleSheet.create({
     color: "#666666",
     marginTop: 4,
     lineHeight: 18,
+  },
+  infoRow: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    backgroundColor: "#FFFFFF",
+    borderRadius: 8,
+    padding: 12,
+    marginBottom: 8,
+    borderWidth: 1,
+    borderColor: "#E0E0E0",
+  },
+  infoLabel: {
+    fontFamily: "Inter_600SemiBold",
+    fontSize: 15,
+    color: "#1A1A1A",
+  },
+  infoValue: {
+    fontFamily: "Inter_400Regular",
+    fontSize: 15,
+    color: "#666666",
   },
 });
 
