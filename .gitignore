@@ -35,3 +35,6 @@ yarn-error.*
 
 # typescript
 *.tsbuildinfo
+
+# Personal / release workflow docs (not for the public repo)
+RELEASE_NOTES.md
