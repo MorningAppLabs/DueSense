@@ -4,6 +4,12 @@
     "slug": "DueSense",
     "version": "1.0.0",
     "orientation": "portrait",
+    "runtimeVersion": {
+      "policy": "appVersion"
+    },
+    "updates": {
+      "url": "https://u.expo.dev/26d5b32d-c2d9-4224-af56-dc21db06307e"
+    },
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "light",
     "newArchEnabled": true,
@@ -36,7 +42,8 @@
     ],
     "plugins": [
       "expo-font",
-      "expo-asset"
+      "expo-asset",
+      "@react-native-community/datetimepicker"
     ]
   }
 }

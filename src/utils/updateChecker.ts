@@ -39,12 +39,13 @@ export const fetchUpdateInfo = async (): Promise<UpdateInfo | null> => {
   try {
     const response = await fetch(UPDATE_JSON_URL);
     if (!response.ok) {
-      throw new Error(`HTTP error! status: ${response.status}`);
+      // Silently ignore 404 (update.json not yet published) or other HTTP errors
+      return null;
     }
     const data: UpdateInfo = await response.json();
     return data;
-  } catch (error) {
-    console.error("Error fetching update info:", error);
+  } catch {
+    // Network offline or other transient error — ignored silently
     return null;
   }
 };

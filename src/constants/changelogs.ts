@@ -1,26 +1,39 @@
 export const changelogs = [
   {
     version: "1.0.0",
-    date: "01 December 2025",
+    date: "06 March 2026",
     description: `
-🎉 Initial Release
+Initial Release — Welcome to DueSense!
 
-Welcome to DueSense - Your Personal Credit Card Manager!
+DueSense is your personal credit card companion, built for complete offline privacy.
 
-✨ Features:
-- Manage multiple credit cards with custom billing cycles
-- Track spending across all your cards
-- Calculate cashback automatically based on card-specific rules
-- Monitor credit limits with visual progress indicators
-- Get reminders for due dates and pending EMI payments
-- Track money you spent for others and manage repayments
-- Find the best card for your next purchase
-- Generate detailed transaction reports
-- Backup and restore your data locally
-- Complete privacy - all data stored on your device
+Core Features:
+- Add and manage multiple credit cards with custom billing cycles and credit limits
+- Track spending across all your cards with categories, merchants, and notes
+- Record repayments and monitor outstanding balances per billing cycle
+- Automatic cashback estimation based on per-card cashback rules
+- Visual utilization progress bars to stay within healthy credit usage
 
-Start managing your credit cards smarter today!
+Smart Tools:
+- Best Fit Card: Find the optimal card for any purchase based on available credit and cashback
+- Money Owed: Track transactions made on behalf of others and log their repayments
+- Subscriptions: Monitor recurring charges with due date tracking
+- Show Report: Detailed breakdown by card, billing cycle, category, and person
+
+Reminders:
+- Local push notifications for bill due dates, EMI reminders, and money owed
+
+Settings:
+- Backup and restore all data as a local JSON file
+- Biometric lock (fingerprint / face ID) support
+- Configurable notification times
+- Multi-currency support
+- Check for over-the-air updates
+
+Privacy:
+- 100% offline — no account required, no data ever leaves your device
 `.trim(),
   },
   // Add more entries as newer versions are released
 ];
+

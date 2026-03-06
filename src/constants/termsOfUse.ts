@@ -1,68 +1,76 @@
 export const termsOfUse = `
 DueSense Terms of Use
-Last Updated: May 17, 2025
-Welcome to DueSense ("App"), a mobile application developed by [DueSense Team] ("we," "us," or "our"). These Terms of Use ("Terms") govern your use of the App. By downloading, installing, or using the App, you agree to be bound by these Terms. If you do not agree, do not use the App.
+Last Updated: 06 March 2026
+
+Welcome to DueSense ("App"), a mobile application developed by MorningAppLabs ("we," "us," or "our"). These Terms of Use ("Terms") govern your use of the App. By downloading, installing, or using the App, you agree to be bound by these Terms. If you do not agree, do not use the App.
 
 1. Acceptance of Terms
-These Terms form a legal agreement between you and us. We may update these Terms at any time, and changes will be effective upon posting in the App or on our website. Your continued use of the App constitutes acceptance of the updated Terms.
+
+These Terms form a legal agreement between you and MorningAppLabs. We may update these Terms at any time, and changes will be effective upon posting within the App. Your continued use of the App constitutes acceptance of the updated Terms.
 
 2. Eligibility
-You must be at least 13 years old to use the App. By using the App, you represent that you meet this age requirement and have the legal capacity to enter into these Terms.
+
+You must be at least 13 years old to use the App. By using the App, you confirm that you meet this requirement and have the legal capacity to agree to these Terms.
 
 3. License to Use the App
+
 We grant you a limited, non-exclusive, non-transferable, revocable license to use the App for personal, non-commercial purposes, subject to these Terms. You may not:
- i. Modify, reverse-engineer, or decompile the App.
- ii. Distribute or reproduce the App without permission.
- iii. Use the App for illegal or unauthorized purposes.
+  i. Modify, reverse-engineer, or decompile the App.
+  ii. Distribute or reproduce the App without our written permission.
+  iii. Use the App for any illegal or unauthorized purposes.
 
 4. User Responsibilities
- i. Accuracy: You are responsible for the accuracy of financial data (e.g., repayments or spending records) entered into the App. The App is a tool for tracking, not a financial advisor.
- ii. Device Security: You are responsible for securing your device and any data stored within the App.
- iii. Compliance: You agree to use the App in compliance with all applicable laws and regulations.
+
+  i. Accuracy: You are responsible for the accuracy of financial data you enter into the App. DueSense is a personal finance tracker, not a certified financial advisor.
+  ii. Device Security: You are responsible for securing your device and any data stored within the App.
+  iii. Compliance: You agree to use the App in compliance with all applicable laws and regulations.
 
 5. App Features and Content
- i. Functionality: The App allows you to track repayments, manage spending, and view reports. Features may change or be discontinued without notice.
- ii. Third-Party Services: If you use third-party services (e.g., Google Drive for backups or ad networks), their terms and policies apply.
- iii. Advertisements: The App may display ads from third-party networks. We are not responsible for the content or practices of these advertisers.
+
+  i. Functionality: The App allows you to track credit card spending, manage repayments, monitor subscriptions, calculate cashback, and view reports. Features may change or be discontinued without notice.
+  ii. No Advertisements: DueSense does not display ads. No third-party advertising networks are used.
+  iii. Offline Operation: The App operates entirely offline. No account or internet connection is required for core functionality.
 
 6. Intellectual Property
-All content, code, and design of the App (excluding user-entered data) are owned by us or our licensors and are protected by copyright, trademark, and other laws. You may not use our intellectual property without written permission.
+
+All content, code, and design of the App (excluding user-entered data) are owned by MorningAppLabs or its licensors and are protected by copyright and other applicable laws. You may not use our intellectual property without written permission.
 
 7. Disclaimer of Warranties
+
 The App is provided "as is" without warranties of any kind, express or implied. We do not guarantee:
- i. The App will be error-free, secure, or uninterrupted.
- ii. The accuracy or reliability of financial calculations or data.
- iii. The App will meet your expectations.
+  i. That the App will be error-free, secure, or uninterrupted.
+  ii. The accuracy or completeness of financial calculations or estimates.
+  iii. That the App will meet your specific requirements.
 
 8. Limitation of Liability
-To the fullest extent permitted by law, we are not liable for any direct, indirect, incidental, or consequential damages arising from your use of the App, including but not limited to:
- i. Loss of data or profits.
- ii. Errors in financial tracking.
- iii. Issues caused by third-party services or ads.
+
+To the fullest extent permitted by law, MorningAppLabs is not liable for any direct, indirect, incidental, or consequential damages arising from your use of the App, including but not limited to:
+  i. Loss of data.
+  ii. Errors in financial tracking or calculations.
+  iii. Decisions made based on App-generated data.
 
 9. Indemnification
-You agree to indemnify and hold us harmless from any claims, losses, or damages arising from your use of the App, violation of these Terms, or infringement of third-party rights.
+
+You agree to indemnify and hold MorningAppLabs harmless from any claims, losses, or damages arising from your use of the App or violation of these Terms.
 
 10. Termination
-We may suspend or terminate your access to the App at any time, with or without cause, including for violation of these Terms. Upon termination, your license to use the App ends, and you must uninstall the App.
+
+We may suspend or terminate your access to the App at any time for violation of these Terms. Upon termination, your license to use the App ends immediately.
 
 11. Governing Law
-These Terms are governed by the laws of India, without regard to conflict of law principles. Any disputes will be resolved in the courts of India.
 
-12. This app is currently in alpha and may contain bugs or errors. We are not responsible for any issues that arise from using the App during this phase. Your feedback is appreciated to help us improve the App.
+These Terms are governed by the laws of India. Any disputes will be subject to the exclusive jurisdiction of the courts of India.
 
-13. Contact Us
-For questions about these Terms, contact us at:  
-Email: [morningshows.me@gmail.com]  
+12. Contact Us
 
-App: Use the feedback feature in the Settings menu.
+For questions about these Terms, please contact us at:
+Email: morningapplabs@gmail.com
 
-14. Miscellaneous
- i. Entire Agreement: These Terms constitute the entire agreement between you and us regarding the App.
- ii. Severability: If any provision is found unenforceable, the remaining provisions remain in effect.
- iii. Waiver: Our failure to enforce any right does not waive that right.
+13. Miscellaneous
+
+  i. Entire Agreement: These Terms constitute the entire agreement between you and MorningAppLabs regarding the App.
+  ii. Severability: If any provision is found unenforceable, the remaining provisions remain in effect.
+  iii. Waiver: Our failure to enforce any right does not constitute a waiver of that right.
 
 By using DueSense, you agree to these Terms of Use.
-
-
 `.trim();

@@ -1,965 +1,560 @@
-import React, { useState, useEffect } from "react";
+﻿import React, { useState, useEffect } from "react";
 import {
   View,
   Text,
   StyleSheet,
   TouchableOpacity,
-  Switch,
-  Alert,
   ScrollView,
   Modal,
-  Dimensions,
-  Animated,
-  SafeAreaView,
+  Alert,
+  StatusBar,
+  Switch,
   Platform,
+  Linking,
 } from "react-native";
-import { Picker } from "@react-native-picker/picker";
-import * as FileSystem from "expo-file-system";
+import { SafeAreaView } from "react-native-safe-area-context";
+import { Feather } from "@expo/vector-icons";
+import DateTimePicker from "@react-native-community/datetimepicker";
+import Constants from "expo-constants";
+import * as FileSystem from "expo-file-system/legacy";
 import * as Sharing from "expo-sharing";
 import * as DocumentPicker from "expo-document-picker";
-import * as Linking from "expo-linking";
-import * as Notifications from "expo-notifications";
-import * as Application from "expo-application";
+import * as LocalAuthentication from "expo-local-authentication";
 import { useStore } from "../store/store";
+import { currencies } from "../constants/currencies";
+import { changelogs } from "../constants/changelogs";
+import { privacyPolicy } from "../constants/privacyPolicy";
+import { termsOfUse } from "../constants/termsOfUse";
+import { checkForUpdates } from "../utils/updateChecker";
+import Dropdown from "../components/Dropdown";
 import {
   storeNotificationPreference,
   getNotificationPreference,
-  DEFAULT_NOTIFICATION_TIME,
 } from "../utils/notifications";
-import { checkForUpdates } from "../utils/updateChecker";
-import DateTimePicker from "@react-native-community/datetimepicker";
-import { currencies } from "../constants/currencies";
-import { privacyPolicy } from "../constants/privacyPolicy";
-import { termsOfUse } from "../constants/termsOfUse";
-import { changelogs } from "../constants/changelogs";
-import { acknowledgments } from "../constants/acknowledgments";
+import { COLORS, TYPOGRAPHY, SPACING, RADIUS, SHADOWS } from "../theme/theme";
 
-const { width } = Dimensions.get("window");
+type NotifType = "dueDate" | "owedMoney" | "billEmi" | "subscription";
+
+interface NotifPrefs {
+  dueDate: { enabled: boolean; time: Date };
+  owedMoney: { enabled: boolean; time: Date };
+  billEmi: { enabled: boolean; time: Date };
+  subscription: { enabled: boolean; time: Date };
+}
+
+const parseTime = (str: string): Date => {
+  const [h, m] = str.split(":").map(Number);
+  const d = new Date();
+  d.setHours(h ?? 9, m ?? 0, 0, 0);
+  return d;
+};
+
+const formatTime = (d: Date): string =>
+  `${d.getHours().toString().padStart(2, "0")}:${d.getMinutes().toString().padStart(2, "0")}`;
+
+const NOTIF_LABELS: Record<NotifType, { label: string; icon: string; desc: string }> = {
+  dueDate: { label: "Bill Due Reminders", icon: "calendar", desc: "Alert when your card bill is due soon" },
+  owedMoney: { label: "Money Owed Reminders", icon: "user", desc: "Alert when someone owes you money" },
+  billEmi: { label: "EMI Reminders", icon: "repeat", desc: "Alert for upcoming EMI payments" },
+  subscription: { label: "Subscription Reminders", icon: "credit-card", desc: "Alert on your subscription billing dates" },
+};
 
 const SettingsScreen: React.FC = () => {
-  const { settings, updateSettings, setState } = useStore();
-  const [currency, setCurrency] = useState(settings.currency);
+  const { settings, updateSettings, cards, transactions, repayments, subscriptions, merchants, categories, persons, setState } = useStore();
 
-  // State for notification preferences
-  const [dueDateReminderEnabled, setDueDateReminderEnabled] = useState(false);
-  const [dueDateReminderTime, setDueDateReminderTime] = useState(
-    settings.notificationTimes?.dueDate || DEFAULT_NOTIFICATION_TIME
-  );
-  const [owedMoneyReminderEnabled, setOwedMoneyReminderEnabled] =
-    useState(false);
-  const [owedMoneyReminderTime, setOwedMoneyReminderTime] = useState(
-    settings.notificationTimes?.owedMoney || DEFAULT_NOTIFICATION_TIME
-  );
-  const [billEmiReminderEnabled, setBillEmiReminderEnabled] = useState(false);
-  const [billEmiReminderTime, setBillEmiReminderTime] = useState(
-    settings.notificationTimes?.billEmi || DEFAULT_NOTIFICATION_TIME
-  );
+  const [notifPrefs, setNotifPrefs] = useState<NotifPrefs>({
+    dueDate: { enabled: true, time: parseTime(settings.notificationTimes.dueDate) },
+    owedMoney: { enabled: true, time: parseTime(settings.notificationTimes.owedMoney) },
+    billEmi: { enabled: true, time: parseTime(settings.notificationTimes.billEmi) },
+    subscription: { enabled: true, time: parseTime(settings.notificationTimes.subscription ?? "09:00") },
+  });
+  const [timePickerFor, setTimePickerFor] = useState<NotifType | null>(null);
+  const [legalModal, setLegalModal] = useState<"privacy" | "terms" | "changelog" | null>(null);
+  const [checkingUpdate, setCheckingUpdate] = useState(false);
+  const [biometricAvailable, setBiometricAvailable] = useState(false);
 
-  // State for time picker visibility
-  const [showDueDatePicker, setShowDueDatePicker] = useState(false);
-  const [showOwedMoneyDatePicker, setShowOwedMoneyDatePicker] = useState(false);
-  const [showBillEmiDatePicker, setShowBillEmiDatePicker] = useState(false);
-
-  const [localSync, setLocalSync] = useState(settings.sync.local);
-  const [cloudSync, setCloudSync] = useState(settings.sync.cloud);
-  const [showPrivacy, setShowPrivacy] = useState(false);
-  const [showTerms, setShowTerms] = useState(false);
-  const [showChangelogs, setShowChangelogs] = useState(false);
-  const [showAcknowledgments, setShowAcknowledgments] = useState(false);
-
-  const scale = new Animated.Value(1);
-
-  // Load notification preferences on component mount
+  // Load notification prefs on mount
   useEffect(() => {
-    const loadPreferences = async () => {
-      const dueDatePref = await getNotificationPreference("dueDate");
-      if (dueDatePref) {
-        setDueDateReminderEnabled(dueDatePref.enabled);
-        setDueDateReminderTime(dueDatePref.time || DEFAULT_NOTIFICATION_TIME);
+    ([
+      "dueDate",
+      "owedMoney",
+      "billEmi",
+      "subscription",
+    ] as NotifType[]).forEach(async (type) => {
+      const p = await getNotificationPreference(type);
+      if (p) {
+        setNotifPrefs((prev) => ({
+          ...prev,
+          [type]: { enabled: p.enabled ?? true, time: parseTime(p.time ?? "09:00") },
+        }));
       }
-
-      const owedMoneyPref = await getNotificationPreference("owedMoney");
-      if (owedMoneyPref) {
-        setOwedMoneyReminderEnabled(owedMoneyPref.enabled);
-        setOwedMoneyReminderTime(
-          owedMoneyPref.time || DEFAULT_NOTIFICATION_TIME
-        );
-      }
-
-      const billEmiPref = await getNotificationPreference("billEmi");
-      if (billEmiPref) {
-        setBillEmiReminderEnabled(billEmiPref.enabled);
-        setBillEmiReminderTime(billEmiPref.time || DEFAULT_NOTIFICATION_TIME);
-      }
-    };
-
-    loadPreferences();
+    });
   }, []);
 
-  // Request notification permissions
-  const requestNotificationPermissions = async () => {
-    const { status } = await Notifications.requestPermissionsAsync({
-      ios: {
-        allowAlert: true,
-        allowBadge: true,
-        allowSound: true,
+  // Check biometric hardware availability
+  useEffect(() => {
+    (async () => {
+      const [hasHw, enrolled] = await Promise.all([
+        LocalAuthentication.hasHardwareAsync(),
+        LocalAuthentication.isEnrolledAsync(),
+      ]);
+      setBiometricAvailable(hasHw && enrolled);
+    })();
+  }, []);
+
+  const toggleNotif = async (type: NotifType) => {
+    const updated = { ...notifPrefs[type], enabled: !notifPrefs[type].enabled };
+    setNotifPrefs((p) => ({ ...p, [type]: updated }));
+    await storeNotificationPreference(type, updated.enabled, formatTime(updated.time));
+  };
+
+  const onTimeChange = async (_: any, date?: Date) => {
+    if (!timePickerFor) return;
+    if (Platform.OS === "android") setTimePickerFor(null);
+    if (!date) return;
+    const updated = { ...notifPrefs[timePickerFor], time: date };
+    setNotifPrefs((p) => ({ ...p, [timePickerFor]: updated }));
+    await storeNotificationPreference(timePickerFor, updated.enabled, formatTime(date));
+    updateSettings({
+      notificationTimes: {
+        ...settings.notificationTimes,
+        [timePickerFor]: formatTime(date),
       },
     });
-    if (status !== "granted") {
-      Alert.alert(
-        "Permission Denied",
-        "Notifications are disabled. Please enable them in your device settings to receive reminders."
-      );
-      return false;
-    }
-    return true;
   };
 
-  const handlePressIn = () => {
-    Animated.spring(scale, {
-      toValue: 0.95,
-      friction: 8,
-      tension: 40,
-      useNativeDriver: true,
-    }).start();
-  };
-
-  const handlePressOut = () => {
-    Animated.spring(scale, {
-      toValue: 1,
-      friction: 8,
-      tension: 40,
-      useNativeDriver: true,
-    }).start();
-  };
-
-  const handleCurrencyChange = (value: string) => {
-    setCurrency(value);
-    updateSettings({ currency: value });
-  };
-
+  // ── Backup ──
   const handleBackup = async () => {
     try {
-      const data = {
-        cards: useStore.getState().cards,
-        transactions: useStore.getState().transactions,
-        repayments: useStore.getState().repayments,
-        settings: useStore.getState().settings,
-        merchants: useStore.getState().merchants,
-        persons: useStore.getState().persons,
-      };
-      const backupPath = `${
-        FileSystem.cacheDirectory
-      }DueSense_backup_${Date.now()}.json`;
-      await FileSystem.writeAsStringAsync(backupPath, JSON.stringify(data));
-      await Sharing.shareAsync(backupPath, {
-        mimeType: "application/json",
-        dialogTitle: "Share or Save Backup",
-      });
-      Alert.alert("Success", "Backup created! Choose where to save or share.");
-    } catch (error) {
-      Alert.alert("Error", "Failed to create or share backup.");
+      const data = JSON.stringify({ cards, transactions, repayments, subscriptions, merchants, categories, persons, settings }, null, 2);
+      const path = (FileSystem.cacheDirectory ?? "") + "DueSense_backup.json";
+      await FileSystem.writeAsStringAsync(path, data, { encoding: FileSystem.EncodingType.UTF8 });
+      if (await Sharing.isAvailableAsync()) {
+        await Sharing.shareAsync(path, { mimeType: "application/json", dialogTitle: "Save DueSense Backup" });
+      } else {
+        Alert.alert("Backup saved", `File saved to: ${path}`);
+      }
+    } catch (e: any) {
+      Alert.alert("Backup failed", e.message);
     }
   };
 
+  // ── Restore ──
   const handleRestore = async () => {
     try {
-      const result = await DocumentPicker.getDocumentAsync({
-        type: "application/json",
-        copyToCacheDirectory: true,
-      });
-      if (result.canceled) {
-        return;
+      const result = await DocumentPicker.getDocumentAsync({ type: "application/json", copyToCacheDirectory: true });
+      if (result.canceled || !result.assets?.[0]) return;
+      const file = result.assets[0];
+      const content = await FileSystem.readAsStringAsync(file.uri, { encoding: FileSystem.EncodingType.UTF8 });
+      const parsed = JSON.parse(content);
+      if (!parsed.cards || !parsed.transactions) {
+        return Alert.alert("Invalid File", "This doesn't look like a valid DueSense backup.");
       }
-      const { uri } = result.assets[0];
-      const content = await FileSystem.readAsStringAsync(uri);
-      const data = JSON.parse(content);
-
-      if (
-        !data.cards ||
-        !data.transactions ||
-        !data.repayments ||
-        !data.settings ||
-        !data.merchants ||
-        !data.persons
-      ) {
-        throw new Error("Invalid backup file: Missing required data.");
-      }
-
-      setState({
-        cards: data.cards,
-        transactions: data.transactions,
-        repayments: data.repayments,
-        settings: data.settings,
-        merchants: data.merchants,
-        persons: data.persons,
-      });
-
-      Alert.alert("Success", "Data restored successfully!");
-    } catch (error) {
       Alert.alert(
-        "Error",
-        "Failed to restore data. Ensure the file is a valid DueSense backup."
+        "Restore Backup?",
+        `This will replace all your current data with the backup from ${file.name}.`,
+        [
+          { text: "Cancel", style: "cancel" },
+          {
+            text: "Restore",
+            style: "destructive",
+            onPress: () => {
+              setState({
+                cards: parsed.cards ?? [],
+                transactions: parsed.transactions ?? [],
+                repayments: parsed.repayments ?? [],
+                subscriptions: parsed.subscriptions ?? [],
+                merchants: parsed.merchants ?? [],
+                categories: parsed.categories ?? [],
+                persons: parsed.persons ?? [],
+                settings: parsed.settings ?? settings,
+              });
+              Alert.alert("Restored", "Your data has been restored successfully.");
+            },
+          },
+        ]
       );
+    } catch (e: any) {
+      Alert.alert("Restore failed", e.message);
     }
   };
 
-  // Updated handleNotificationToggle with permission request
-  const handleNotificationToggle = async (
-    type: "dueDate" | "owedMoney" | "billEmi",
-    enabled: boolean
-  ) => {
-    if (enabled) {
-      const granted = await requestNotificationPermissions();
-      if (!granted) {
-        // Revert toggle if permissions are denied
-        if (type === "dueDate") setDueDateReminderEnabled(false);
-        else if (type === "owedMoney") setOwedMoneyReminderEnabled(false);
-        else setBillEmiReminderEnabled(false);
-        return;
-      }
-    }
-
-    if (type === "dueDate") {
-      setDueDateReminderEnabled(enabled);
-      await storeNotificationPreference(
-        "dueDate",
-        enabled,
-        dueDateReminderTime
-      );
-      updateSettings({
-        notificationTimes: {
-          ...settings.notificationTimes,
-          dueDate: dueDateReminderTime,
-        },
-      });
-    } else if (type === "owedMoney") {
-      setOwedMoneyReminderEnabled(enabled);
-      await storeNotificationPreference(
-        "owedMoney",
-        enabled,
-        owedMoneyReminderTime
-      );
-      updateSettings({
-        notificationTimes: {
-          ...settings.notificationTimes,
-          owedMoney: owedMoneyReminderTime,
-        },
-      });
-    } else {
-      // billEmi
-      setBillEmiReminderEnabled(enabled);
-      await storeNotificationPreference(
-        "billEmi",
-        enabled,
-        billEmiReminderTime
-      );
-      updateSettings({
-        notificationTimes: {
-          ...settings.notificationTimes,
-          billEmi: billEmiReminderTime,
-        },
-      });
-    }
-    // Note: Scheduling/canceling event-based notifications happens elsewhere
-    // in your app based on relevant events (e.g., bill generation).
-  };
-
-  // Handlers for time picker changes
-  const handleDueDateTimeChange = (event: any, selectedDate?: Date) => {
-    const currentDate = selectedDate || new Date();
-    setShowDueDatePicker(Platform.OS === "ios");
-    const timeString = `${currentDate
-      .getHours()
-      .toString()
-      .padStart(2, "0")}:${currentDate
-      .getMinutes()
-      .toString()
-      .padStart(2, "0")}`;
-    setDueDateReminderTime(timeString);
-    if (dueDateReminderEnabled) {
-      storeNotificationPreference("dueDate", true, timeString);
-      updateSettings({
-        notificationTimes: {
-          ...settings.notificationTimes,
-          dueDate: timeString,
-        },
-      });
-    }
-  };
-
-  const handleOwedMoneyTimeChange = (event: any, selectedDate?: Date) => {
-    const currentDate = selectedDate || new Date();
-    setShowOwedMoneyDatePicker(Platform.OS === "ios");
-    const timeString = `${currentDate
-      .getHours()
-      .toString()
-      .padStart(2, "0")}:${currentDate
-      .getMinutes()
-      .toString()
-      .padStart(2, "0")}`;
-    setOwedMoneyReminderTime(timeString);
-    if (owedMoneyReminderEnabled) {
-      storeNotificationPreference("owedMoney", true, timeString);
-      updateSettings({
-        notificationTimes: {
-          ...settings.notificationTimes,
-          owedMoney: timeString,
-        },
-      });
-    }
-  };
-
-  const handleBillEmiTimeChange = (event: any, selectedDate?: Date) => {
-    const currentDate = selectedDate || new Date();
-    setShowBillEmiDatePicker(Platform.OS === "ios");
-    const timeString = `${currentDate
-      .getHours()
-      .toString()
-      .padStart(2, "0")}:${currentDate
-      .getMinutes()
-      .toString()
-      .padStart(2, "0")}`;
-    setBillEmiReminderTime(timeString);
-    if (billEmiReminderEnabled) {
-      storeNotificationPreference("billEmi", true, timeString);
-      updateSettings({
-        notificationTimes: {
-          ...settings.notificationTimes,
-          billEmi: timeString,
-        },
-      });
-    }
-  };
-
-  const handleSyncToggle = (type: "local" | "cloud", enabled: boolean) => {
-    if (type === "local") {
-      setLocalSync(enabled);
-      if (enabled) {
-        Alert.alert(
-          "Info",
-          "Local sync feature is not implemented yet. Use Backup Data for sharing and saving local backups."
-        );
-      }
-    } else {
-      setCloudSync(enabled);
-      if (enabled) {
-        Alert.alert(
-          "Info",
-          "Cloud sync feature is not implemented yet. Use Backup Data for sharing and saving local backups."
-        );
-      }
-    }
-    updateSettings({ sync: { local: localSync, cloud: enabled } });
-  };
-
-  const handleContact = async () => {
+  const handleCheckUpdate = async () => {
+    setCheckingUpdate(true);
     try {
-      await Linking.openURL(
-        "mailto:morningapplabs@gmail.com?subject=DueSense Bug Report/Feature Request"
-      );
-    } catch (error) {
-      Alert.alert("Error", "Failed to open email app.");
+      await checkForUpdates(false);
+    } finally {
+      setCheckingUpdate(false);
     }
   };
 
-  const handleSupportDeveloper = async () => {
-    try {
-      await Linking.openURL("https://buymeacoffee.com/morningapplabs"); // Replace with your Buy Me a Coffee link
-    } catch (error) {
-      Alert.alert("Error", "Failed to open link.");
-    }
+  const handleBugReport = () => {
+    const version = Constants.expoConfig?.version ?? "1.0.0";
+    const os = Platform.OS === "android" ? `Android ${Platform.Version}` : `iOS ${Platform.Version}`;
+    const subject = encodeURIComponent(`[DueSense v${version}] Bug Report / Feature Request`);
+    const body = encodeURIComponent(
+      `App Version: DueSense v${version}\nPlatform: ${os}\n\n--- Describe the issue or feature request below ---\n\n`
+    );
+    Linking.openURL(`mailto:morningapplabs@gmail.com?subject=${subject}&body=${body}`);
   };
 
-  const handleCheckForUpdates = async () => {
-    await checkForUpdates(false);
+  const SettingRow = ({
+    icon,
+    label,
+    desc,
+    right,
+    onPress,
+    danger,
+  }: {
+    icon: string;
+    label: string;
+    desc?: string;
+    right?: React.ReactNode;
+    onPress?: () => void;
+    danger?: boolean;
+  }) => (
+    <TouchableOpacity style={styles.settingRow} onPress={onPress} disabled={!onPress} activeOpacity={onPress ? 0.7 : 1}>
+      <View style={[styles.settingIcon, { backgroundColor: (danger ? COLORS.dangerLight : COLORS.primaryLight) }]}>
+        <Feather name={icon as any} size={16} color={danger ? COLORS.danger : COLORS.primary} />
+      </View>
+      <View style={{ flex: 1 }}>
+        <Text style={[styles.settingLabel, danger && { color: COLORS.danger }]}>{label}</Text>
+        {desc ? <Text style={styles.settingDesc}>{desc}</Text> : null}
+      </View>
+      {right ?? (onPress ? <Feather name="chevron-right" size={16} color={COLORS.textMuted} /> : null)}
+    </TouchableOpacity>
+  );
+
+  const SectionHeader = ({ title }: { title: string }) => (
+    <Text style={styles.sectionHeader}>{title}</Text>
+  );
+
+  const legalContent = () => {
+    switch (legalModal) {
+      case "privacy": return { title: "Privacy Policy", body: privacyPolicy, isLog: false };
+      case "terms": return { title: "Terms of Use", body: termsOfUse, isLog: false };
+      case "changelog": return { title: "Changelog", body: null, isLog: true };
+      default: return { title: "", body: "", isLog: false };
+    }
   };
 
   return (
-    <SafeAreaView style={styles.container}>
-      <ScrollView contentContainerStyle={styles.scrollContent}>
-        <Text style={styles.sectionTitle}>Currency</Text>
-        <View style={styles.pickerContainer}>
-          <Picker
-            selectedValue={currency}
-            onValueChange={handleCurrencyChange}
-            style={styles.picker}
-          >
-            {currencies.map((curr) => (
-              <Picker.Item
-                key={curr.value}
-                label={curr.label}
-                value={curr.value}
-              />
-            ))}
-          </Picker>
-        </View>
-        <Text style={styles.sectionTitle}>Backup/Restore</Text>
-        <Animated.View style={[styles.button, { transform: [{ scale }] }]}>
-          <TouchableOpacity
-            onPress={handleBackup}
-            onPressIn={handlePressIn}
-            onPressOut={handlePressOut}
-            accessibilityLabel="Backup Data"
-            accessibilityRole="button"
-          >
-            <Text style={styles.buttonText}>Backup Data</Text>
-          </TouchableOpacity>
-        </Animated.View>
-        <Animated.View
-          style={[
-            styles.button,
-            { backgroundColor: "#388E3C", transform: [{ scale }] },
-          ]}
-        >
-          <TouchableOpacity
-            onPress={handleRestore}
-            onPressIn={handlePressIn}
-            onPressOut={handlePressOut}
-            accessibilityLabel="Restore Data"
-            accessibilityRole="button"
-          >
-            <Text style={styles.buttonText}>Restore Data</Text>
-          </TouchableOpacity>
-        </Animated.View>
-        {/* <Text style={styles.sectionTitle}>Sync</Text> */}
-        {/* <View style={styles.toggle}> */}
-        {/* <Text style={styles.toggleLabel}>Enable Local Sync</Text> */}
-        {/* <Switch */}
-        {/* value={localSync} */}
-        {/* onValueChange={(value) => handleSyncToggle("local", value)} */}
-        {/* accessibilityLabel="Enable Local Sync" */}
-        {/* /> */}
-        {/* </View> */}
-        {/* <View style={styles.toggle}> */}
-        {/* <Text style={styles.toggleLabel}>Enable Cloud Sync</Text> */}
-        {/* <Switch */}
-        {/* value={cloudSync} */}
-        {/* onValueChange={(value) => handleSyncToggle("cloud", value)} */}
-        {/* accessibilityLabel="Enable Cloud Sync" */}
-        {/* /> */}
-        {/* </View> */}
-        <Text style={styles.sectionTitle}>Notifications</Text>
+    <SafeAreaView style={styles.safe} edges={["top"]}>
+      <StatusBar barStyle="dark-content" backgroundColor={COLORS.background} />
+      <View style={styles.topBar}>
+        <Text style={styles.screenTitle}>Settings</Text>
+      </View>
 
-        {/* Due Date Reminder */}
-        <View style={styles.toggle}>
-          <View style={styles.toggleLabelContainer}>
-            <Text style={styles.toggleLabel}>Due Date Reminder</Text>
-            <Text style={styles.toggleDescription}>
-              Get notified when your bill is ready for payment (on billing cycle end date)
-            </Text>
-          </View>
-          <Switch
-            value={dueDateReminderEnabled}
-            onValueChange={(value) =>
-              handleNotificationToggle("dueDate", value)
-            }
-            accessibilityLabel="Due Date Reminder"
-          />
-        </View>
-        {dueDateReminderEnabled && (
-          <View style={styles.timePickerContainer}>
-            <Text style={styles.timeLabel}>Time:</Text>
-            {Platform.OS === "android" ? (
-              <TouchableOpacity onPress={() => setShowDueDatePicker(true)}>
-                <Text style={styles.timeText}>{dueDateReminderTime}</Text>
-              </TouchableOpacity>
-            ) : (
-              <DateTimePicker
-                value={new Date(`2000-01-01T${dueDateReminderTime}:00`)}
-                mode="time"
-                is24Hour={true}
-                display="default"
-                onChange={handleDueDateTimeChange}
-              />
-            )}
-            {showDueDatePicker && Platform.OS === "android" && (
-              <DateTimePicker
-                value={new Date(`2000-01-01T${dueDateReminderTime}:00`)}
-                mode="time"
-                is24Hour={true}
-                display="default"
-                onChange={handleDueDateTimeChange}
-              />
-            )}
-          </View>
-        )}
+      <ScrollView contentContainerStyle={styles.container} showsVerticalScrollIndicator={false}>
 
-        {/* Owed Money Reminder */}
-        <View style={styles.toggle}>
-          <View style={styles.toggleLabelContainer}>
-            <Text style={styles.toggleLabel}>Owed-Money Reminder</Text>
-            <Text style={styles.toggleDescription}>
-              Get notified to collect money owed from friends (10 days after bill generation)
-            </Text>
-          </View>
-          <Switch
-            value={owedMoneyReminderEnabled}
-            onValueChange={(value) =>
-              handleNotificationToggle("owedMoney", value)
-            }
-            accessibilityLabel="Owed-Money Reminder"
-          />
-        </View>
-        {owedMoneyReminderEnabled && (
-          <View style={styles.timePickerContainer}>
-            <Text style={styles.timeLabel}>Time:</Text>
-            {Platform.OS === "android" ? (
-              <TouchableOpacity
-                onPress={() => setShowOwedMoneyDatePicker(true)}
-              >
-                <Text style={styles.timeText}>{owedMoneyReminderTime}</Text>
-              </TouchableOpacity>
-            ) : (
-              <DateTimePicker
-                value={new Date(`2000-01-01T${owedMoneyReminderTime}:00`)}
-                mode="time"
-                is24Hour={true}
-                display="default"
-                onChange={handleOwedMoneyTimeChange}
+        {/* ── Preferences ── */}
+        <SectionHeader title="Preferences" />
+        <View style={styles.card}>
+          <View style={styles.settingRow}>
+            <View style={[styles.settingIcon, { backgroundColor: COLORS.primaryLight }]}>
+              <Feather name="dollar-sign" size={16} color={COLORS.primary} />
+            </View>
+            <View style={{ flex: 1, gap: 4 }}>
+              <Text style={styles.settingLabel}>Currency</Text>
+              <Text style={styles.settingDesc}>Displayed throughout the app</Text>
+              <Dropdown
+                items={currencies.map((c) => ({ label: c.label, value: c.value }))}
+                selectedValue={settings.currency}
+                onValueChange={(v) => updateSettings({ currency: v })}
+                placeholder="Select currency…"
+                label="Select Currency"
+                description="Choose your preferred display currency"
+                searchable
+                style={{ marginTop: 4 }}
               />
-            )}
-            {showOwedMoneyDatePicker && Platform.OS === "android" && (
-              <DateTimePicker
-                value={new Date(`2000-01-01T${owedMoneyReminderTime}:00`)}
-                mode="time"
-                is24Hour={true}
-                display="default"
-                onChange={handleOwedMoneyTimeChange}
-              />
-            )}
+            </View>
           </View>
-        )}
-
-        {/* Bill and EMI Reminder */}
-        <View style={styles.toggle}>
-          <View style={styles.toggleLabelContainer}>
-            <Text style={styles.toggleLabel}>Bill and EMI Reminder</Text>
-            <Text style={styles.toggleDescription}>
-              Get notified for bill and EMI payments due (on billing cycle end date)
-            </Text>
-          </View>
-          <Switch
-            value={billEmiReminderEnabled}
-            onValueChange={(value) =>
-              handleNotificationToggle("billEmi", value)
-            }
-            accessibilityLabel="Bill and EMI Reminder"
-          />
-        </View>
-        {billEmiReminderEnabled && (
-          <View style={styles.timePickerContainer}>
-            <Text style={styles.timeLabel}>Time:</Text>
-            {Platform.OS === "android" ? (
-              <TouchableOpacity onPress={() => setShowBillEmiDatePicker(true)}>
-                <Text style={styles.timeText}>{billEmiReminderTime}</Text>
-              </TouchableOpacity>
-            ) : (
-              <DateTimePicker
-                value={new Date(`2000-01-01T${billEmiReminderTime}:00`)}
-                mode="time"
-                is24Hour={true}
-                display="default"
-                onChange={handleBillEmiTimeChange}
-              />
-            )}
-            {showBillEmiDatePicker && Platform.OS === "android" && (
-              <DateTimePicker
-                value={new Date(`2000-01-01T${billEmiReminderTime}:00`)}
-                mode="time"
-                is24Hour={true}
-                display="default"
-                onChange={handleBillEmiTimeChange}
-              />
-            )}
-          </View>
-        )}
-
-        <Text style={styles.sectionTitle}>App Info</Text>
-        
-        <View style={styles.infoRow}>
-          <Text style={styles.infoLabel}>Developer:</Text>
-          <Text style={styles.infoValue}>MorningAppLabs</Text>
-        </View>
-        
-        <View style={styles.infoRow}>
-          <Text style={styles.infoLabel}>App Version:</Text>
-          <Text style={styles.infoValue}>
-            {Application.nativeApplicationVersion || "1.0.0"}
-          </Text>
         </View>
 
-        <Animated.View
-          style={[
-            styles.button,
-            { backgroundColor: "#FF6F00", transform: [{ scale }] },
-          ]}
-        >
-          <TouchableOpacity
-            onPress={handleSupportDeveloper}
-            onPressIn={handlePressIn}
-            onPressOut={handlePressOut}
-            accessibilityLabel="Support the Developer"
-            accessibilityRole="button"
-          >
-            <Text style={styles.buttonText}>☕ Support the Developer</Text>
-          </TouchableOpacity>
-        </Animated.View>
-
-        <Animated.View
-          style={[
-            styles.button,
-            { backgroundColor: "#4CAF50", transform: [{ scale }] },
-          ]}
-        >
-          <TouchableOpacity
-            onPress={handleCheckForUpdates}
-            onPressIn={handlePressIn}
-            onPressOut={handlePressOut}
-            accessibilityLabel="Check for Updates"
-            accessibilityRole="button"
-          >
-            <Text style={styles.buttonText}>🔄 Check for Updates</Text>
-          </TouchableOpacity>
-        </Animated.View>
-
-        <Animated.View
-          style={[
-            styles.button,
-            { backgroundColor: "#666666", transform: [{ scale }] },
-          ]}
-        >
-          <TouchableOpacity
-            onPress={() => setShowPrivacy(true)}
-            onPressIn={handlePressIn}
-            onPressOut={handlePressOut}
-            accessibilityLabel="Privacy Policy"
-            accessibilityRole="button"
-          >
-            <Text style={styles.buttonText}>Privacy Policy</Text>
-          </TouchableOpacity>
-        </Animated.View>
-
-        <Animated.View
-          style={[
-            styles.button,
-            { backgroundColor: "#666666", transform: [{ scale }] },
-          ]}
-        >
-          <TouchableOpacity
-            onPress={() => setShowTerms(true)}
-            onPressIn={handlePressIn}
-            onPressOut={handlePressOut}
-            accessibilityLabel="Terms of Use"
-            accessibilityRole="button"
-          >
-            <Text style={styles.buttonText}>Terms of Use</Text>
-          </TouchableOpacity>
-        </Animated.View>
-
-        <Animated.View
-          style={[
-            styles.button,
-            { backgroundColor: "#666666", transform: [{ scale }] },
-          ]}
-        >
-          <TouchableOpacity
-            onPress={() => setShowChangelogs(true)}
-            onPressIn={handlePressIn}
-            onPressOut={handlePressOut}
-            accessibilityLabel="Changelog"
-            accessibilityRole="button"
-          >
-            <Text style={styles.buttonText}>Changelog</Text>
-          </TouchableOpacity>
-        </Animated.View>
-
-        <Animated.View style={[styles.button, { transform: [{ scale }] }]}>
-          <TouchableOpacity
-            onPress={handleContact}
-            onPressIn={handlePressIn}
-            onPressOut={handlePressOut}
-            accessibilityLabel="Bug Report/Feature Request"
-            accessibilityRole="button"
-          >
-            <Text style={styles.buttonText}>🐛 Bug Report/Feature Request</Text>
-          </TouchableOpacity>
-        </Animated.View>
-
-        <Animated.View
-          style={[
-            styles.button,
-            { backgroundColor: "#666666", transform: [{ scale }] },
-          ]}
-        >
-          <TouchableOpacity
-            onPress={() => setShowAcknowledgments(true)}
-            onPressIn={handlePressIn}
-            onPressOut={handlePressOut}
-            accessibilityLabel="Acknowledgments"
-            accessibilityRole="button"
-          >
-            <Text style={styles.buttonText}>Acknowledgments</Text>
-          </TouchableOpacity>
-        </Animated.View>
-
-        <Modal
-          visible={showPrivacy}
-          animationType="slide"
-          transparent={false}
-          onRequestClose={() => setShowPrivacy(false)}
-        >
-          <SafeAreaView style={styles.modalContainer}>
-            <ScrollView contentContainerStyle={styles.modalContent}>
-              <Text style={styles.modalTitle}>Privacy Policy</Text>
-              <Text style={styles.modalText}>{privacyPolicy}</Text>
-              <TouchableOpacity
-                style={styles.modalButton}
-                onPress={() => setShowPrivacy(false)}
-                accessibilityLabel="Close Privacy Policy"
-                accessibilityRole="button"
-              >
-                <Text style={styles.modalButtonText}>Close</Text>
-              </TouchableOpacity>
-            </ScrollView>
-          </SafeAreaView>
-        </Modal>
-        <Modal
-          visible={showTerms}
-          animationType="slide"
-          transparent={false}
-          onRequestClose={() => setShowTerms(false)}
-        >
-          <SafeAreaView style={styles.modalContainer}>
-            <ScrollView contentContainerStyle={styles.modalContent}>
-              <Text style={styles.modalTitle}>Terms of Use</Text>
-              <Text style={styles.modalText}>{termsOfUse}</Text>
-              <TouchableOpacity
-                style={styles.modalButton}
-                onPress={() => setShowTerms(false)}
-                accessibilityLabel="Close Terms of Use"
-                accessibilityRole="button"
-              >
-                <Text style={styles.modalButtonText}>Close</Text>
-              </TouchableOpacity>
-            </ScrollView>
-          </SafeAreaView>
-        </Modal>
-        <Modal
-          visible={showChangelogs}
-          animationType="slide"
-          transparent={false}
-          onRequestClose={() => setShowChangelogs(false)}
-        >
-          <SafeAreaView style={styles.modalContainer}>
-            <ScrollView contentContainerStyle={styles.modalContent}>
-              <Text style={styles.modalTitle}>Changelogs</Text>
-              {changelogs.map((log) => (
-                <View key={log.version} style={styles.changelogEntry}>
-                  <Text style={styles.changelogText}>
-                    Version {log.version} ({log.date})
-                  </Text>
-                  <Text style={styles.changelogDescription}>
-                    {log.description}
-                  </Text>
+        {/* ── Notifications ── */}
+        <SectionHeader title="Notifications" />
+        <View style={styles.card}>
+          {(Object.keys(NOTIF_LABELS) as NotifType[]).map((type, i) => {
+            const info = NOTIF_LABELS[type];
+            const pref = notifPrefs[type];
+            return (
+              <View key={type}>
+                {i > 0 && <View style={styles.divider} />}
+                <View style={styles.notifRow}>
+                  <View style={[styles.settingIcon, { backgroundColor: COLORS.primaryLight }]}>
+                    <Feather name={info.icon as any} size={16} color={COLORS.primary} />
+                  </View>
+                  <View style={{ flex: 1 }}>
+                    <Text style={styles.settingLabel}>{info.label}</Text>
+                    <Text style={styles.settingDesc}>{info.desc}</Text>
+                    {pref.enabled && (
+                      <TouchableOpacity
+                        style={styles.timeBtn}
+                        onPress={() => setTimePickerFor(type)}
+                      >
+                        <Feather name="clock" size={12} color={COLORS.primary} />
+                        <Text style={styles.timeTxt}>{formatTime(pref.time)}</Text>
+                      </TouchableOpacity>
+                    )}
+                  </View>
+                  <Switch
+                    value={pref.enabled}
+                    onValueChange={() => toggleNotif(type)}
+                    trackColor={{ false: COLORS.borderLight, true: COLORS.primaryLight }}
+                    thumbColor={pref.enabled ? COLORS.primary : COLORS.textMuted}
+                  />
                 </View>
-              ))}
-              <TouchableOpacity
-                style={styles.modalButton}
-                onPress={() => setShowChangelogs(false)}
-                accessibilityLabel="Close Changelogs"
-                accessibilityRole="button"
-              >
-                <Text style={styles.modalButtonText}>Close</Text>
-              </TouchableOpacity>
-            </ScrollView>
-          </SafeAreaView>
-        </Modal>
-        <Modal
-          visible={showAcknowledgments}
-          animationType="slide"
-          transparent={false}
-          onRequestClose={() => setShowAcknowledgments(false)}
-        >
-          <SafeAreaView style={styles.modalContainer}>
-            <ScrollView contentContainerStyle={styles.modalContent}>
-              <Text style={styles.modalTitle}>Acknowledgments</Text>
-              <Text style={styles.modalText}>{acknowledgments}</Text>
-              <TouchableOpacity
-                style={styles.modalButton}
-                onPress={() => setShowAcknowledgments(false)}
-                accessibilityLabel="Close Acknowledgments"
-                accessibilityRole="button"
-              >
-                <Text style={styles.modalButtonText}>Close</Text>
-              </TouchableOpacity>
-            </ScrollView>
-          </SafeAreaView>
-        </Modal>
+              </View>
+            );
+          })}
+        </View>
+
+        {/* ── Security ── */}
+        {biometricAvailable && (
+          <>
+            <SectionHeader title="Security" />
+            <View style={styles.card}>
+              <SettingRow
+                icon="shield"
+                label="Biometric Lock"
+                desc="Require fingerprint or face ID to open the app"
+                right={
+                  <Switch
+                    value={settings.biometricEnabled ?? false}
+                    onValueChange={(val) => updateSettings({ biometricEnabled: val })}
+                    trackColor={{ false: COLORS.borderLight, true: COLORS.primaryLight }}
+                    thumbColor={(settings.biometricEnabled ?? false) ? COLORS.primary : COLORS.textMuted}
+                  />
+                }
+              />
+            </View>
+          </>
+        )}
+
+        {/* ── Backup & Restore ── */}
+        <SectionHeader title="Data" />
+        <View style={styles.card}>
+          <SettingRow
+            icon="download"
+            label="Backup Data"
+            desc="Save all your data to a JSON file"
+            onPress={handleBackup}
+          />
+          <View style={styles.divider} />
+          <SettingRow
+            icon="upload"
+            label="Restore from Backup"
+            desc="Restore data from a previous backup file"
+            onPress={handleRestore}
+            danger
+          />
+        </View>
+
+        {/* ── Legal ── */}
+        <SectionHeader title="Legal" />
+        <View style={styles.card}>
+          <SettingRow icon="lock" label="Privacy Policy" desc="How we handle your data" onPress={() => setLegalModal("privacy")} />
+          <View style={styles.divider} />
+          <SettingRow icon="file-text" label="Terms of Use" desc="Rules for using DueSense" onPress={() => setLegalModal("terms")} />
+          <View style={styles.divider} />
+          <SettingRow icon="list" label="Changelog" desc="What’s new in each version" onPress={() => setLegalModal("changelog")} />
+        </View>
+
+        {/* ── Support ── */}
+        <SectionHeader title="Support" />
+        <View style={styles.card}>
+          <SettingRow
+            icon="mail"
+            label="Bug Report / Feature Request"
+            desc="Report a bug or suggest a new feature"
+            onPress={handleBugReport}
+          />
+          <View style={styles.divider} />
+          <SettingRow
+            icon="coffee"
+            label="Buy Me a Coffee"
+            desc="Support the development of DueSense ☕"
+            onPress={() => Linking.openURL("https://buymeacoffee.com/morningapplabs")}
+          />
+        </View>
+
+        {/* ── App Info ── */}
+        <SectionHeader title="About" />
+        <View style={styles.card}>
+          <SettingRow
+            icon="info"
+            label="App Version"
+            desc={`DueSense v${Constants.expoConfig?.version ?? "1.0.0"}`}
+          />
+          <View style={styles.divider} />
+          <SettingRow
+            icon="refresh-cw"
+            label={checkingUpdate ? "Checking for updates…" : "Check for Updates"}
+            desc="Tap to check if a newer version is available"
+            onPress={handleCheckUpdate}
+          />
+        </View>
+
+        <View style={{ height: SPACING.xl }} />
       </ScrollView>
+
+      {/* ── Time Picker ── */}
+      {timePickerFor !== null && (
+        <DateTimePicker
+          value={notifPrefs[timePickerFor].time}
+          mode="time"
+          is24Hour
+          display={Platform.OS === "ios" ? "spinner" : "default"}
+          onChange={onTimeChange}
+        />
+      )}
+
+      {/* ── Legal Modal ── */}
+      <Modal visible={legalModal !== null} animationType="slide" transparent onRequestClose={() => setLegalModal(null)}>
+        <View style={styles.modalOverlay}>
+          <View style={[styles.modalBox, { maxHeight: "88%" }]}>
+            <View style={styles.modalHandle} />
+            <View style={styles.modalHeader}>
+              <Text style={styles.modalTitle}>{legalContent().title}</Text>
+              <TouchableOpacity onPress={() => setLegalModal(null)}>
+                <Feather name="x" size={22} color={COLORS.textSecondary} />
+              </TouchableOpacity>
+            </View>
+            <ScrollView showsVerticalScrollIndicator={false}>
+              {legalContent().isLog ? (
+                changelogs.map((entry, i) => (
+                  <View key={i} style={styles.changelogEntry}>
+                    <Text style={styles.changelogVersion}>v{entry.version} · {entry.date}</Text>
+                    <Text style={styles.legalText}>{entry.description}</Text>
+                  </View>
+                ))
+              ) : (
+                <Text style={styles.legalText}>{legalContent().body}</Text>
+              )}
+              <View style={{ height: SPACING.xl }} />
+            </ScrollView>
+          </View>
+        </View>
+      </Modal>
     </SafeAreaView>
   );
 };
 
 const styles = StyleSheet.create({
-  container: {
+  safe: { flex: 1, backgroundColor: COLORS.background },
+  topBar: {
+    paddingHorizontal: SPACING.md,
+    paddingVertical: SPACING.sm,
+    backgroundColor: COLORS.background,
+  },
+  screenTitle: { ...TYPOGRAPHY.h2 },
+  container: { padding: SPACING.md },
+
+  sectionHeader: {
+    ...TYPOGRAPHY.caption,
+    color: COLORS.textMuted,
+    textTransform: "uppercase",
+    letterSpacing: 0.8,
+    marginBottom: SPACING.xs,
+    marginTop: SPACING.sm,
+    marginLeft: SPACING.xs,
+  },
+  card: {
+    backgroundColor: COLORS.surface,
+    borderRadius: RADIUS.lg,
+    marginBottom: SPACING.xs,
+    overflow: "hidden",
+    ...SHADOWS.sm,
+  },
+  divider: { height: 1, backgroundColor: COLORS.borderLight, marginLeft: 52 },
+
+  settingRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    padding: SPACING.md,
+    gap: SPACING.sm,
+  },
+  settingIcon: {
+    width: 34,
+    height: 34,
+    borderRadius: RADIUS.md,
+    alignItems: "center",
+    justifyContent: "center",
+    flexShrink: 0,
+  },
+  settingLabel: { ...TYPOGRAPHY.bodyBold, fontSize: 14 },
+  settingDesc: { ...TYPOGRAPHY.micro, color: COLORS.textMuted, marginTop: 1 },
+
+  notifRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    padding: SPACING.md,
+    gap: SPACING.sm,
+  },
+  timeBtn: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
+    marginTop: SPACING.xs,
+    backgroundColor: COLORS.primaryLight,
+    borderRadius: RADIUS.sm,
+    paddingHorizontal: SPACING.sm,
+    paddingVertical: 3,
+    alignSelf: "flex-start",
+  },
+  timeTxt: { ...TYPOGRAPHY.caption, color: COLORS.primary, fontWeight: "700" },
+
+  // Modal
+  modalOverlay: {
     flex: 1,
-    backgroundColor: "#F0F4F8",
+    backgroundColor: "rgba(0,0,0,0.4)",
+    justifyContent: "flex-end",
   },
-  scrollContent: {
-    padding: 16,
-    paddingBottom: 80,
+  modalBox: {
+    backgroundColor: COLORS.surface,
+    borderTopLeftRadius: RADIUS.xxl,
+    borderTopRightRadius: RADIUS.xxl,
+    padding: SPACING.lg,
   },
-  header: {
-    fontFamily: "Inter_700Bold",
-    fontSize: 24,
-    color: "#1A1A1A",
-    marginBottom: 16,
+  modalHandle: {
+    width: 40,
+    height: 4,
+    backgroundColor: COLORS.border,
+    borderRadius: RADIUS.full,
+    alignSelf: "center",
+    marginBottom: SPACING.sm,
   },
-  sectionTitle: {
-    fontFamily: "Inter_700Bold",
-    fontSize: 18,
-    color: "#1A1A1A",
-    marginBottom: 12,
-    marginTop: 16,
-  },
-  toggle: {
+  modalHeader: {
     flexDirection: "row",
     justifyContent: "space-between",
     alignItems: "center",
-    marginBottom: 12,
+    marginBottom: SPACING.md,
   },
-  toggleLabel: {
-    fontFamily: "Inter_400Regular",
-    fontSize: 16,
-    color: "#1A1A1A",
+  modalTitle: { ...TYPOGRAPHY.h3 },
+  pickerWrap: {
+    backgroundColor: COLORS.background,
+    borderRadius: RADIUS.md,
+    borderWidth: 1,
+    borderColor: COLORS.border,
+    marginBottom: SPACING.sm,
   },
-  button: {
-    backgroundColor: "#1976D2",
-    borderRadius: 8,
-    padding: 16,
-    alignItems: "center",
-    marginBottom: 12,
-  },
-  buttonText: {
-    fontFamily: "Inter_700Bold",
-    fontSize: 16,
-    color: "#FFFFFF",
-  },
-  aboutText: {
-    fontFamily: "Inter_400Regular",
-    fontSize: 16,
-    color: "#1A1A1A",
-    marginBottom: 8,
-  },
-  modalContainer: {
-    flex: 1,
-    backgroundColor: "#FFFFFF",
-  },
-  modalContent: {
-    padding: 20,
-    paddingBottom: 40,
-  },
-  modalTitle: {
-    fontFamily: "Inter_700Bold",
-    fontSize: 18,
-    color: "#1A1A1A",
-    marginBottom: 16,
-  },
-  modalText: {
-    fontFamily: "Inter_400Regular",
-    fontSize: 14,
-    color: "#4A4A4A",
-    marginBottom: 16,
-  },
-  modalButton: {
-    backgroundColor: "#E0E0E0",
-    borderRadius: 8,
-    padding: 12,
-    alignItems: "center",
-    alignSelf: "center",
-    marginTop: 20,
-  },
-  modalButtonText: {
-    fontFamily: "Inter_700Bold",
-    fontSize: 16,
-    color: "#1A1A1A",
+  legalText: {
+    ...TYPOGRAPHY.body,
+    color: COLORS.textSecondary,
+    lineHeight: 22,
   },
   changelogEntry: {
-    marginBottom: 16,
+    marginBottom: SPACING.md,
+    borderLeftWidth: 3,
+    borderLeftColor: COLORS.primary,
+    paddingLeft: SPACING.sm,
   },
-  changelogText: {
-    fontFamily: "Inter_700Bold",
-    fontSize: 14,
-    color: "#1A1A1A",
-  },
-  changelogDescription: {
-    fontFamily: "Inter_400Regular",
-    fontSize: 14,
-    color: "#4A4A4A",
-  },
-  pickerContainer: {
-    backgroundColor: "#FFFFFF",
-    borderRadius: 8,
-    marginBottom: 12,
-    borderWidth: 1,
-    borderColor: "#E0E0E0",
-    overflow: "hidden",
-  },
-  picker: {
-    fontFamily: "Inter_400Regular",
-    fontSize: 16,
-    color: "#1A1A1A",
-  },
-  timePickerContainer: {
-    flexDirection: "row",
-    alignItems: "center",
-    marginBottom: 12,
-    paddingLeft: 20,
-  },
-  timeLabel: {
-    fontFamily: "Inter_400Regular",
-    fontSize: 16,
-    color: "#1A1A1A",
-    marginRight: 10,
-  },
-  timeText: {
-    fontFamily: "Inter_400Regular",
-    fontSize: 16,
-    color: "#007AFF",
-  },
-  toggleLabelContainer: {
-    flex: 1,
-    marginRight: 12,
-  },
-  toggleDescription: {
-    fontFamily: "Inter_400Regular",
-    fontSize: 13,
-    color: "#666666",
-    marginTop: 4,
-    lineHeight: 18,
-  },
-  infoRow: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    alignItems: "center",
-    backgroundColor: "#FFFFFF",
-    borderRadius: 8,
-    padding: 12,
-    marginBottom: 8,
-    borderWidth: 1,
-    borderColor: "#E0E0E0",
-  },
-  infoLabel: {
-    fontFamily: "Inter_600SemiBold",
-    fontSize: 15,
-    color: "#1A1A1A",
-  },
-  infoValue: {
-    fontFamily: "Inter_400Regular",
-    fontSize: 15,
-    color: "#666666",
+  changelogVersion: {
+    ...TYPOGRAPHY.bodyBold,
+    color: COLORS.primary,
+    marginBottom: SPACING.xs,
   },
 });
 
 export default SettingsScreen;
+

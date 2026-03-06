@@ -1,18 +1,21 @@
-import React, { useState, useRef } from "react";
+﻿import React, { useState, useRef } from "react";
 import {
   View,
   Text,
   TextInput,
   StyleSheet,
   TouchableOpacity,
-  FlatList,
   Alert,
-  Modal,
-  Dimensions,
+  FlatList,
   Animated,
-  SafeAreaView,
+  Modal,
+  ScrollView,
+  StatusBar,
+  KeyboardAvoidingView,
+  Platform,
 } from "react-native";
-import { Picker } from "@react-native-picker/picker";
+import { SafeAreaView } from "react-native-safe-area-context";
+import Dropdown from "../components/Dropdown";
 import { Feather } from "@expo/vector-icons";
 import { useNavigation } from "@react-navigation/native";
 import { NativeStackNavigationProp } from "@react-navigation/native-stack";
@@ -20,612 +23,488 @@ import { useStore } from "../store/store";
 import moment from "moment";
 import * as Crypto from "expo-crypto";
 import { Card, Repayment, Transaction } from "../types/types";
-import { useSafeAreaInsets } from "react-native-safe-area-context"; // Added for notch handling
+import {
+  getBillingCycleDates,
+  getBillingCycleOptions,
+  resolveCycleRange,
+  getUnbilledAmount,
+  formatAmount,
+} from "../utils/billingUtils";
+import { COLORS, TYPOGRAPHY, SPACING, RADIUS, SHADOWS, getCardColor } from "../theme/theme";
 
-const { width } = Dimensions.get("window");
-
-type RootStackParamList = {
-  RepayToCard: undefined;
-};
-type NavigationProp = NativeStackNavigationProp<RootStackParamList>;
+type RootStackParamList = { RepayToCard: undefined };
+type NavProp = NativeStackNavigationProp<RootStackParamList>;
 
 const RepayToCardScreen: React.FC = () => {
-  const navigation = useNavigation<NavigationProp>();
-  const { cards, repayments, settings, addRepayment, transactions } =
-    useStore();
+  const navigation = useNavigation<NavProp>();
+  const { cards, repayments, settings, addRepayment, updateRepayment, deleteRepayment, transactions } = useStore();
   const [cardId, setCardId] = useState("");
   const [billingCycle, setBillingCycle] = useState("current");
   const [amount, setAmount] = useState("");
   const [description, setDescription] = useState("");
-  const [editRepayment, setEditRepayment] = useState<null | {
-    id: string;
-    amount: string;
-    description: string;
-    billingCycleStart?: string;
-  }>(null);
+  const [editModal, setEditModal] = useState<Repayment | null>(null);
+  const [editAmount, setEditAmount] = useState("");
+  const [editDescription, setEditDescription] = useState("");
   const [deleteId, setDeleteId] = useState<string | null>(null);
-  const insets = useSafeAreaInsets(); // Get safe area insets for notch/status bar
 
-  // Animation setup using Animated
   const scale = useRef(new Animated.Value(1)).current;
+  const pressIn = () => Animated.spring(scale, { toValue: 0.96, friction: 8, tension: 40, useNativeDriver: true }).start();
+  const pressOut = () => Animated.spring(scale, { toValue: 1, friction: 8, tension: 40, useNativeDriver: true }).start();
 
-  const handlePressIn = () => {
-    Animated.spring(scale, {
-      toValue: 0.95,
-      friction: 8,
-      tension: 40,
-      useNativeDriver: true,
-    }).start();
-  };
+  const selectedCard = cards.find((c: Card) => c.id === cardId) ?? null;
+  const cardIdx = cards.findIndex((c: Card) => c.id === cardId);
+  const cardColor = getCardColor(cardIdx, selectedCard?.color);
 
-  const handlePressOut = () => {
-    Animated.spring(scale, {
-      toValue: 1,
-      friction: 8,
-      tension: 40,
-      useNativeDriver: true,
-    }).start();
-  };
+  const billingCycleOptions = selectedCard
+    ? getBillingCycleOptions(selectedCard, transactions)
+    : [];
 
-  // Compute billing cycle for a given date
-  const getBillingCycleDates = (card: Card, transactionDate: string) => {
-    const date = moment(transactionDate, "YYYY-MM-DD");
-    const year = date.year();
-    const month = date.month() + 1;
-    const startDay = card.billingCycle.start;
-    const endDay = card.billingCycle.end;
-    let cycleStart, cycleEnd;
-    if (startDay <= endDay) {
-      cycleStart = moment(`${year}-${month}-${startDay}`, "YYYY-MM-DD");
-      cycleEnd = moment(`${year}-${month}-${endDay}`, "YYYY-MM-DD");
-    } else {
-      cycleStart = moment(`${year}-${month}-${startDay}`, "YYYY-MM-DD");
-      cycleEnd = moment(`${year}-${month}-${endDay}`, "YYYY-MM-DD").add(
-        1,
-        "month"
-      );
-    }
-    if (date.isBefore(cycleStart)) {
-      cycleStart.subtract(1, "month");
-      cycleEnd.subtract(1, "month");
-    } else if (date.isAfter(cycleEnd)) {
-      cycleStart.add(1, "month");
-      cycleEnd.add(1, "month");
-    }
-    return { start: cycleStart, end: cycleEnd };
-  };
+  const { start: cycleStart } = selectedCard
+    ? resolveCycleRange(selectedCard, billingCycle)
+    : { start: moment() };
 
-  // Generate billing cycle options
-  const getBillingCycles = (cardId: string) => {
-    const card = cards.find((c: Card) => c.id === cardId);
-    if (!card) return [{ label: "Current", value: "current" }];
+  const unbilled = selectedCard
+    ? getUnbilledAmount(selectedCard, transactions, repayments)
+    : 0;
 
-    const today = moment();
-    const currentCycle = getBillingCycleDates(card, today.format("YYYY-MM-DD"));
-    const currentLabel = `Current (${currentCycle.start.format(
-      "DD MMM YYYY"
-    )} - ${currentCycle.end.format("DD MMM YYYY")})`;
+  const cycleRepayments = repayments.filter(
+    (r: Repayment) =>
+      r.cardId === cardId &&
+      r.billingCycleStart &&
+      moment(r.billingCycleStart, "YYYY-MM-DD").isSame(cycleStart, "day")
+  );
 
-    const cardTransactions = transactions.filter(
-      (t: Transaction) => t.cardId === cardId
-    );
-    const cycles: { start: moment.Moment; end: moment.Moment }[] = [];
-    cardTransactions.forEach((t) => {
-      const cycle = getBillingCycleDates(card, t.date);
-      if (
-        !cycles.some(
-          (c) =>
-            c.start.isSame(cycle.start, "day") && c.end.isSame(cycle.end, "day")
-        )
-      ) {
-        cycles.push(cycle);
-      }
-    });
+  const totalRepaid = cycleRepayments.reduce((s: number, r: Repayment) => s + r.amount, 0);
 
-    const sortedCycles = cycles.sort((a, b) => b.start.diff(a.start));
-    const options = [
-      { label: currentLabel, value: "current" },
-      ...sortedCycles
-        .filter(
-          (c) =>
-            !c.start.isSame(currentCycle.start, "day") ||
-            !c.end.isSame(currentCycle.end, "day")
-        )
-        .map((c) => ({
-          label: `${c.start.format("DD MMM YYYY")} - ${c.end.format(
-            "DD MMM YYYY"
-          )}`,
-          value: `${c.start.format("YYYY-MM-DD")}|${c.end.format(
-            "YYYY-MM-DD"
-          )}`,
-        })),
-    ];
-
-    return options;
-  };
-
-  // Calculate unbilled amount for the selected billing cycle
-  const getUnbilledAmount = (cardId: string, billingCycle: string) => {
-    const card = cards.find((c: Card) => c.id === cardId);
-    if (!card) return 0;
-
-    let start: moment.Moment, end: moment.Moment;
-    if (billingCycle === "current") {
-      const currentCycle = getBillingCycleDates(
-        card,
-        moment().format("YYYY-MM-DD")
-      );
-      start = currentCycle.start;
-      end = currentCycle.end;
-    } else {
-      const [startDate, endDate] = billingCycle.split("|");
-      start = moment(startDate, "YYYY-MM-DD");
-      end = moment(endDate, "YYYY-MM-DD");
-    }
-
-    const cardTransactions = transactions.filter(
-      (t: Transaction) =>
-        t.cardId === cardId &&
-        moment(t.date, "YYYY-MM-DD").isBetween(start, end, undefined, "[]")
-    );
-    const totalSpent = cardTransactions.reduce(
-      (sum: number, t: Transaction) => sum + t.amount,
-      0
-    );
-
-    const totalRepaid = repayments
-      .filter(
-        (r: Repayment) =>
-          r.cardId === cardId &&
-          r.billingCycleStart &&
-          moment(r.billingCycleStart, "YYYY-MM-DD").isSame(start, "day")
-      )
-      .reduce((sum: number, r: Repayment) => sum + r.amount, 0);
-
-    return totalSpent - totalRepaid;
-  };
-
-  // Get filtered repayments for the selected billing cycle
-  const getFilteredRepayments = (cardId: string, billingCycle: string) => {
-    const card = cards.find((c: Card) => c.id === cardId);
-    if (!card) return [];
-
-    let start: moment.Moment;
-    if (billingCycle === "current") {
-      const currentCycle = getBillingCycleDates(
-        card,
-        moment().format("YYYY-MM-DD")
-      );
-      start = currentCycle.start;
-    } else {
-      const [startDate] = billingCycle.split("|");
-      start = moment(startDate, "YYYY-MM-DD");
-    }
-
-    return repayments.filter(
-      (r: Repayment) =>
-        r.cardId === cardId &&
-        r.billingCycleStart &&
-        moment(r.billingCycleStart, "YYYY-MM-DD").isSame(start, "day")
-    );
-  };
-
-  const handleSave = () => {
+  const handleAdd = () => {
     if (!cardId) return Alert.alert("Error", "Please select a card.");
-    if (!amount || Number(amount) <= 0)
-      return Alert.alert("Error", "Please enter a valid amount.");
-
-    const card = cards.find((c: Card) => c.id === cardId);
-    if (!card) return Alert.alert("Error", "Invalid card selected.");
-
-    let billingCycleStart: string;
-    if (billingCycle === "current") {
-      const currentCycle = getBillingCycleDates(
-        card,
-        moment().format("YYYY-MM-DD")
-      );
-      billingCycleStart = currentCycle.start.format("YYYY-MM-DD");
-    } else {
-      const [startDate] = billingCycle.split("|");
-      billingCycleStart = startDate;
-    }
-
-    const repayment = {
+    const val = Number(amount);
+    if (!val || val <= 0) return Alert.alert("Error", "Enter a valid amount.");
+    const repayment: Repayment = {
       id: Crypto.randomUUID(),
       cardId,
-      amount: Number(amount),
+      amount: val,
       date: moment().format("YYYY-MM-DD"),
-      description: description || undefined,
-      billingCycleStart,
+      description: description.trim() || undefined,
+      billingCycleStart: cycleStart.format("YYYY-MM-DD"),
     };
     addRepayment(repayment);
     setAmount("");
     setDescription("");
-    Alert.alert("Success", "Repayment added successfully!");
-  };
-
-  const handleEdit = (repayment: Repayment) => {
-    setEditRepayment({
-      id: repayment.id,
-      amount: repayment.amount.toString(),
-      description: repayment.description || "",
-      billingCycleStart: repayment.billingCycleStart,
-    });
+    Alert.alert("Success", "Repayment recorded!");
   };
 
   const handleSaveEdit = () => {
-    if (!editRepayment) return;
-    useStore.setState((state) => ({
-      repayments: state.repayments.map((r: Repayment) =>
-        r.id === editRepayment.id
-          ? {
-              ...r,
-              amount: Number(editRepayment.amount),
-              description: editRepayment.description,
-              billingCycleStart: editRepayment.billingCycleStart,
-            }
-          : r
-      ),
-    }));
-    setEditRepayment(null);
-    Alert.alert("Success", "Repayment updated successfully!");
-  };
-
-  const handleDelete = (id: string) => {
-    setDeleteId(id);
-  };
-
-  const confirmDelete = () => {
-    if (deleteId) {
-      useStore.setState((state) => ({
-        repayments: state.repayments.filter(
-          (r: Repayment) => r.id !== deleteId
-        ),
-      }));
-      setDeleteId(null);
-      Alert.alert("Success", "Repayment deleted successfully!");
-    }
+    if (!editModal) return;
+    const val = Number(editAmount);
+    if (!val || val <= 0) return Alert.alert("Error", "Enter a valid amount.");
+    updateRepayment({ ...editModal, amount: val, description: editDescription.trim() || undefined });
+    setEditModal(null);
   };
 
   const renderRepayment = ({ item }: { item: Repayment }) => (
-    <View style={styles.repaymentCard}>
-      <View>
-        <Text style={styles.repaymentText}>
-          Amount: {settings.currency}
-          {item.amount}
-        </Text>
-        <Text style={styles.repaymentText}>Date: {item.date}</Text>
-        {item.description && (
-          <Text style={styles.repaymentText}>
-            Description: {item.description}
-          </Text>
-        )}
-        {item.billingCycleStart && (
-          <Text style={styles.repaymentText}>
-            Billing Cycle Start:{" "}
-            {moment(item.billingCycleStart).format("DD MMM YYYY")}
-          </Text>
-        )}
+    <View style={styles.repaymentItem}>
+      <View style={[styles.repaymentIcon, { backgroundColor: cardColor + "20" }]}>
+        <Feather name="check-circle" size={18} color={cardColor} />
       </View>
-      <View style={styles.repaymentIcons}>
-        <TouchableOpacity onPress={() => handleEdit(item)}>
-          <Feather name="edit" size={24} color="#1976D2" />
+      <View style={styles.repaymentContent}>
+        <Text style={styles.repaymentAmount}>{formatAmount(item.amount, settings.currency)}</Text>
+        <Text style={styles.repaymentDate}>{moment(item.date, "YYYY-MM-DD").format("DD MMM YYYY")}</Text>
+        {item.description ? <Text style={styles.repaymentDesc}>{item.description}</Text> : null}
+      </View>
+      <View style={styles.repaymentActions}>
+        <TouchableOpacity
+          style={styles.actionBtn}
+          onPress={() => {
+            setEditModal(item);
+            setEditAmount(item.amount.toString());
+            setEditDescription(item.description ?? "");
+          }}
+        >
+          <Feather name="edit-2" size={15} color={COLORS.primary} />
         </TouchableOpacity>
-        <TouchableOpacity onPress={() => handleDelete(item.id)}>
-          <Feather name="trash-2" size={24} color="#D32F2F" />
+        <TouchableOpacity
+          style={[styles.actionBtn, { backgroundColor: COLORS.dangerLight }]}
+          onPress={() => setDeleteId(item.id)}
+        >
+          <Feather name="trash-2" size={15} color={COLORS.danger} />
         </TouchableOpacity>
       </View>
     </View>
   );
 
   return (
-    <SafeAreaView style={[styles.safeContainer, { paddingTop: insets.top }]}>
-      <View style={styles.container}>
-        <Text style={styles.header}>Repay to Card</Text>
-        <View style={styles.pickerContainer}>
-          <Picker
+    <SafeAreaView style={styles.safe} edges={["top"]}>
+      <StatusBar barStyle="dark-content" backgroundColor={COLORS.background} />
+
+      {/* Header */}
+      <View style={styles.topBar}>
+        <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backBtn}>
+          <Feather name="arrow-left" size={22} color={COLORS.text} />
+        </TouchableOpacity>
+        <Text style={styles.screenTitle}>Repay to Card</Text>
+      </View>
+
+      <ScrollView contentContainerStyle={styles.container} showsVerticalScrollIndicator={false}>
+        {/* Card & cycle selectors */}
+        <View style={styles.selectorCard}>
+          <Text style={styles.fieldLabel}>Credit Card</Text>
+          <Dropdown
+            items={cards.map((c: Card) => ({ label: c.name, value: c.id }))}
             selectedValue={cardId}
-            onValueChange={(value) => {
-              setCardId(value);
-              setBillingCycle("current");
-            }}
-            style={styles.picker}
-          >
-            <Picker.Item label="Select Credit Card" value="" />
-            {cards.map((card: Card) => (
-              <Picker.Item key={card.id} label={card.name} value={card.id} />
-            ))}
-          </Picker>
-        </View>
-        {cardId && (
-          <>
-            <View style={styles.pickerContainer}>
-              <Picker
+            onValueChange={(v) => { setCardId(v); setBillingCycle("current"); }}
+            placeholder="Select card…"
+            label="Select Card"
+          />
+
+          {selectedCard && (
+            <>
+              <Text style={[styles.fieldLabel, { marginTop: SPACING.sm }]}>Billing Cycle</Text>
+              <Dropdown
+                items={billingCycleOptions.map((o) => ({ label: o.label, value: o.value }))}
                 selectedValue={billingCycle}
-                onValueChange={(value) => setBillingCycle(value)}
-                style={styles.picker}
-              >
-                {getBillingCycles(cardId).map((option) => (
-                  <Picker.Item
-                    key={option.value}
-                    label={option.label}
-                    value={option.value}
-                  />
-                ))}
-              </Picker>
+                onValueChange={setBillingCycle}
+                placeholder="Select cycle…"
+                label="Select Billing Cycle"
+              />
+            </>
+          )}
+        </View>
+
+        {/* Balance summary */}
+        {selectedCard && (
+          <View style={[styles.balanceCard, { borderLeftColor: cardColor }]}>
+            <View style={styles.balanceItem}>
+              <Text style={[styles.balanceVal, { color: COLORS.danger }]}>
+                {formatAmount(unbilled, settings.currency)}
+              </Text>
+              <Text style={styles.balanceLbl}>Unbilled Amount</Text>
             </View>
-            <Text style={styles.unbilled}>
-              Total Unbilled Amount: {settings.currency}
-              {getUnbilledAmount(cardId, billingCycle)}
+            <View style={styles.balanceDiv} />
+            <View style={styles.balanceItem}>
+              <Text style={[styles.balanceVal, { color: COLORS.success }]}>
+                {formatAmount(totalRepaid, settings.currency)}
+              </Text>
+              <Text style={styles.balanceLbl}>Repaid This Cycle</Text>
+            </View>
+            <View style={styles.balanceDiv} />
+            <View style={styles.balanceItem}>
+              <Text style={[styles.balanceVal, { color: COLORS.primary }]}>
+                {formatAmount(Math.max(0, unbilled - totalRepaid), settings.currency)}
+              </Text>
+              <Text style={styles.balanceLbl}>Remaining Due</Text>
+            </View>
+          </View>
+        )}
+
+        {/* Add repayment form */}
+        <View style={styles.formCard}>
+          <Text style={styles.formTitle}>Record Repayment</Text>
+
+          <Text style={styles.fieldLabel}>Amount</Text>
+          <TextInput
+            style={styles.input}
+            keyboardType="numeric"
+            value={amount}
+            onChangeText={setAmount}
+            placeholder={"Amount in " + settings.currency}
+            placeholderTextColor={COLORS.textMuted}
+          />
+          {selectedCard && amount !== "" && Number(amount) > 0 && (
+            <View style={styles.afterRepayRow}>
+              <Feather name="check-circle" size={14} color={COLORS.success} />
+              <Text style={styles.afterRepayTxt}>
+                Remaining after payment:{" "}
+                <Text style={{ fontWeight: "700" }}>
+                  {formatAmount(Math.max(0, unbilled - totalRepaid - Number(amount)), settings.currency)}
+                </Text>
+              </Text>
+            </View>
+          )}
+
+          <Text style={styles.fieldLabel}>Note (optional)</Text>
+          <TextInput
+            style={styles.input}
+            value={description}
+            onChangeText={setDescription}
+            placeholder="e.g. Bill payment"
+            placeholderTextColor={COLORS.textMuted}
+          />
+
+          <Animated.View style={{ transform: [{ scale }] }}>
+            <TouchableOpacity
+              style={styles.addBtn}
+              onPress={handleAdd}
+              onPressIn={pressIn}
+              onPressOut={pressOut}
+            >
+              <Feather name="plus-circle" size={18} color={COLORS.textInverse} />
+              <Text style={styles.addBtnTxt}>Record Repayment</Text>
+            </TouchableOpacity>
+          </Animated.View>
+        </View>
+
+        {/* Repayment history */}
+        {cycleRepayments.length > 0 && (
+          <>
+            <Text style={styles.historyTitle}>
+              History for this cycle ({cycleRepayments.length})
             </Text>
+            {cycleRepayments.map((r: Repayment) => (
+              <View key={r.id}>{renderRepayment({ item: r })}</View>
+            ))}
           </>
         )}
-        <TextInput
-          style={styles.input}
-          placeholder={`${settings.currency}0.00`}
-          keyboardType="numeric"
-          value={amount}
-          onChangeText={setAmount}
-          accessibilityLabel="Repayment Amount"
-        />
-        <TextInput
-          style={styles.input}
-          placeholder="Description (Optional)"
-          value={description}
-          onChangeText={setDescription}
-          accessibilityLabel="Repayment Description"
-        />
-        <Animated.View style={[styles.saveButton, { transform: [{ scale }] }]}>
-          <TouchableOpacity
-            onPress={handleSave}
-            onPressIn={handlePressIn}
-            onPressOut={handlePressOut}
-            accessibilityLabel="Save Repayment"
-            accessibilityRole="button"
-          >
-            <Text style={styles.saveButtonText}>Save</Text>
-          </TouchableOpacity>
-        </Animated.View>
-        <Text style={styles.sectionTitle}>Repayment History</Text>
-        <FlatList
-          data={getFilteredRepayments(cardId, billingCycle)}
-          renderItem={renderRepayment}
-          keyExtractor={(item) => item.id}
-          style={styles.list}
-          contentContainerStyle={{ paddingBottom: 48 }}
-        />
-        {/* Edit Repayment Modal */}
-        <Modal
-          visible={!!editRepayment}
-          transparent={true}
-          animationType="slide"
-          onRequestClose={() => setEditRepayment(null)}
-        >
-          <View style={styles.modalOverlay}>
-            <View style={styles.modal}>
+
+        <View style={{ height: SPACING.xl }} />
+      </ScrollView>
+
+      {/* Edit Modal */}
+      <Modal visible={editModal !== null} animationType="slide" transparent onRequestClose={() => setEditModal(null)}>
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalBox}>
+            <View style={styles.modalHeader}>
               <Text style={styles.modalTitle}>Edit Repayment</Text>
-              <TextInput
-                style={[styles.input, styles.modalInput]}
-                placeholder={`${settings.currency}0.00`}
-                keyboardType="numeric"
-                value={editRepayment?.amount}
-                onChangeText={(text) =>
-                  setEditRepayment((prev) => prev && { ...prev, amount: text })
-                }
-                accessibilityLabel="Edit Repayment Amount"
-              />
-              <TextInput
-                style={[styles.input, styles.modalInput]}
-                placeholder="Description (Optional)"
-                value={editRepayment?.description}
-                onChangeText={(text) =>
-                  setEditRepayment(
-                    (prev) => prev && { ...prev, description: text }
-                  )
-                }
-                accessibilityLabel="Edit Repayment Description"
-              />
-              <View style={styles.modalButtons}>
-                <TouchableOpacity
-                  style={styles.modalButton}
-                  onPress={() => setEditRepayment(null)}
-                  accessibilityLabel="Cancel Edit"
-                  accessibilityRole="button"
-                >
-                  <Text style={styles.modalButtonText}>Cancel</Text>
-                </TouchableOpacity>
-                <TouchableOpacity
-                  style={styles.modalButton}
-                  onPress={handleSaveEdit}
-                  accessibilityLabel="Save Edit"
-                  accessibilityRole="button"
-                >
-                  <Text style={styles.modalButtonText}>Save</Text>
-                </TouchableOpacity>
-              </View>
+              <TouchableOpacity onPress={() => setEditModal(null)}>
+                <Feather name="x" size={22} color={COLORS.textSecondary} />
+              </TouchableOpacity>
+            </View>
+            <Text style={styles.fieldLabel}>Amount</Text>
+            <TextInput
+              style={styles.input}
+              keyboardType="numeric"
+              value={editAmount}
+              onChangeText={setEditAmount}
+              placeholder="0.00"
+              placeholderTextColor={COLORS.textMuted}
+            />
+            <Text style={styles.fieldLabel}>Note (optional)</Text>
+            <TextInput
+              style={styles.input}
+              value={editDescription}
+              onChangeText={setEditDescription}
+              placeholder="e.g. Bill payment"
+              placeholderTextColor={COLORS.textMuted}
+            />
+            <View style={styles.modalBtns}>
+              <TouchableOpacity style={styles.cancelBtn} onPress={() => setEditModal(null)}>
+                <Text style={styles.cancelTxt}>Cancel</Text>
+              </TouchableOpacity>
+              <TouchableOpacity style={styles.saveBtn} onPress={handleSaveEdit}>
+                <Text style={styles.saveTxt}>Save</Text>
+              </TouchableOpacity>
             </View>
           </View>
-        </Modal>
-        {/* Delete Confirmation Modal */}
-        <Modal
-          visible={!!deleteId}
-          transparent={true}
-          animationType="slide"
-          onRequestClose={() => setDeleteId(null)}
-        >
-          <View style={styles.modalOverlay}>
-            <View style={styles.modal}>
-              <Text style={styles.modalTitle}>
-                Are you sure you want to delete this repayment?
-              </Text>
-              <Text style={styles.warning}>This action cannot be undone.</Text>
-              <View style={styles.modalButtons}>
-                <TouchableOpacity
-                  style={styles.modalButton}
-                  onPress={() => setDeleteId(null)}
-                  accessibilityLabel="Cancel Delete"
-                  accessibilityRole="button"
-                >
-                  <Text style={styles.modalButtonText}>No</Text>
-                </TouchableOpacity>
-                <TouchableOpacity
-                  style={styles.modalButton}
-                  onPress={confirmDelete}
-                  accessibilityLabel="Confirm Delete"
-                  accessibilityRole="button"
-                >
-                  <Text style={[styles.modalButtonText, { color: "#D32F2F" }]}>
-                    Yes
-                  </Text>
-                </TouchableOpacity>
-              </View>
+        </View>
+      </Modal>
+
+      {/* Delete Confirmation */}
+      <Modal visible={deleteId !== null} animationType="fade" transparent onRequestClose={() => setDeleteId(null)}>
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalBox}>
+            <View style={[styles.modalIcon, { backgroundColor: COLORS.dangerLight }]}>
+              <Feather name="trash-2" size={24} color={COLORS.danger} />
+            </View>
+            <Text style={styles.modalTitle}>Delete Repayment?</Text>
+            <Text style={styles.modalBody}>This will remove the repayment record permanently.</Text>
+            <View style={styles.modalBtns}>
+              <TouchableOpacity style={styles.cancelBtn} onPress={() => setDeleteId(null)}>
+                <Text style={styles.cancelTxt}>Cancel</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[styles.saveBtn, { backgroundColor: COLORS.dangerLight }]}
+                onPress={() => {
+                  if (deleteId) deleteRepayment(deleteId);
+                  setDeleteId(null);
+                }}
+              >
+                <Text style={[styles.saveTxt, { color: COLORS.danger }]}>Delete</Text>
+              </TouchableOpacity>
             </View>
           </View>
-        </Modal>
-      </View>
+        </View>
+      </Modal>
     </SafeAreaView>
   );
 };
 
 const styles = StyleSheet.create({
-  safeContainer: {
+  safe: { flex: 1, backgroundColor: COLORS.background },
+  topBar: {
+    flexDirection: "row",
+    alignItems: "center",
+    paddingHorizontal: SPACING.md,
+    paddingTop: SPACING.sm,
+    paddingBottom: SPACING.sm,
+    gap: SPACING.sm,
+    backgroundColor: COLORS.background,
+  },
+  backBtn: {
+    width: 36,
+    height: 36,
+    borderRadius: RADIUS.full,
+    backgroundColor: COLORS.surface,
+    alignItems: "center",
+    justifyContent: "center",
+    ...SHADOWS.xs,
+  },
+  screenTitle: { ...TYPOGRAPHY.h3 },
+  container: { padding: SPACING.md },
+
+  selectorCard: {
+    backgroundColor: COLORS.surface,
+    borderRadius: RADIUS.lg,
+    padding: SPACING.md,
+    marginBottom: SPACING.sm,
+    ...SHADOWS.sm,
+  },
+  fieldLabel: { ...TYPOGRAPHY.caption, color: COLORS.textSecondary, marginBottom: 4 },
+
+  afterRepayRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    backgroundColor: COLORS.successLight,
+    borderRadius: RADIUS.sm,
+    paddingHorizontal: SPACING.sm,
+    paddingVertical: 6,
+    marginBottom: SPACING.sm,
+  },
+  afterRepayTxt: {
+    ...TYPOGRAPHY.caption,
+    color: COLORS.success,
     flex: 1,
-    backgroundColor: "#F0F4F8",
   },
-  container: {
-    flex: 1,
-    padding: 16,
+
+  balanceCard: {
+    flexDirection: "row",
+    backgroundColor: COLORS.surface,
+    borderRadius: RADIUS.lg,
+    marginBottom: SPACING.sm,
+    overflow: "hidden",
+    borderLeftWidth: 4,
+    ...SHADOWS.sm,
   },
-  header: {
-    fontFamily: "Inter_700Bold",
-    fontSize: 24,
-    color: "#1A1A1A",
-    marginBottom: 16,
+  balanceItem: { flex: 1, padding: SPACING.md, alignItems: "center" },
+  balanceVal: { ...TYPOGRAPHY.bodyBold, fontSize: 14 },
+  balanceLbl: { ...TYPOGRAPHY.micro, marginTop: 2, textAlign: "center" },
+  balanceDiv: { width: 1, backgroundColor: COLORS.border },
+
+  formCard: {
+    backgroundColor: COLORS.surface,
+    borderRadius: RADIUS.lg,
+    padding: SPACING.md,
+    marginBottom: SPACING.sm,
+    ...SHADOWS.sm,
   },
+  formTitle: { ...TYPOGRAPHY.h4, marginBottom: SPACING.sm },
   input: {
-    backgroundColor: "#FFFFFF",
-    borderRadius: 8,
-    padding: 12,
-    marginBottom: 12,
-    fontFamily: "Inter_400Regular",
-    fontSize: 16,
-    color: "#1A1A1A",
+    ...TYPOGRAPHY.body,
+    backgroundColor: COLORS.background,
+    borderRadius: RADIUS.md,
+    paddingHorizontal: SPACING.md,
+    paddingVertical: SPACING.sm + 2,
     borderWidth: 1,
-    borderColor: "#E0E0E0",
+    borderColor: COLORS.border,
+    marginBottom: SPACING.sm,
   },
-  modalInput: {
-    borderWidth: 1,
-    borderColor: "#E0E0E0",
-  },
-  unbilled: {
-    fontFamily: "Inter_400Regular",
-    fontSize: 16,
-    color: "#1A1A1A",
-    marginBottom: 12,
-  },
-  saveButton: {
-    backgroundColor: "#388E3C",
-    borderRadius: 8,
-    padding: 16,
-    alignItems: "center",
-    marginBottom: 16,
-  },
-  saveButtonText: {
-    fontFamily: "Inter_700Bold",
-    fontSize: 16,
-    color: "#FFFFFF",
-  },
-  sectionTitle: {
-    fontFamily: "Inter_700Bold",
-    fontSize: 18,
-    color: "#1A1A1A",
-    marginBottom: 12,
-  },
-  list: {
-    flex: 1,
-  },
-  repaymentCard: {
+  addBtn: {
     flexDirection: "row",
-    justifyContent: "space-between",
-    backgroundColor: "#FFFFFF",
-    borderRadius: 8,
-    padding: 12,
-    marginBottom: 8,
-    shadowColor: "#000",
-    shadowOpacity: 0.1,
-    shadowRadius: 4,
-    elevation: 2,
-    position: "relative",
+    backgroundColor: COLORS.success,
+    borderRadius: RADIUS.lg,
+    paddingVertical: 14,
+    alignItems: "center",
+    justifyContent: "center",
+    gap: SPACING.sm,
+    marginTop: SPACING.xs,
+    ...SHADOWS.sm,
   },
-  repaymentText: {
-    fontFamily: "Inter_400Regular",
-    fontSize: 14,
-    color: "#4A4A4A",
-    marginBottom: 4,
+  addBtnTxt: { ...TYPOGRAPHY.bodyBold, color: COLORS.textInverse },
+
+  historyTitle: {
+    ...TYPOGRAPHY.h4,
+    marginBottom: SPACING.sm,
+    marginTop: SPACING.xs,
   },
-  repaymentIcons: {
-    position: "absolute",
-    top: 8,
-    right: 8,
+  repaymentItem: {
+    backgroundColor: COLORS.surface,
+    borderRadius: RADIUS.lg,
+    padding: SPACING.md,
+    marginBottom: SPACING.sm,
     flexDirection: "row",
     alignItems: "center",
-    gap: 12,
+    gap: SPACING.sm,
+    ...SHADOWS.xs,
   },
+  repaymentIcon: {
+    width: 38,
+    height: 38,
+    borderRadius: RADIUS.full,
+    alignItems: "center",
+    justifyContent: "center",
+    flexShrink: 0,
+  },
+  repaymentContent: { flex: 1 },
+  repaymentAmount: { ...TYPOGRAPHY.bodyBold },
+  repaymentDate: { ...TYPOGRAPHY.caption, marginTop: 2 },
+  repaymentDesc: { ...TYPOGRAPHY.micro, color: COLORS.textMuted, marginTop: 1 },
+  repaymentActions: { flexDirection: "row", gap: SPACING.xs },
+  actionBtn: {
+    width: 32,
+    height: 32,
+    borderRadius: RADIUS.sm,
+    backgroundColor: COLORS.primaryLight,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+
+  // Modal shared
   modalOverlay: {
     flex: 1,
-    backgroundColor: "rgba(0, 0, 0, 0.5)",
-    justifyContent: "center",
-    alignItems: "center",
+    backgroundColor: "rgba(0,0,0,0.4)",
+    justifyContent: "flex-end",
   },
-  modal: {
-    backgroundColor: "#FFFFFF",
-    borderRadius: 12,
-    padding: 16,
-    width: width * 0.9,
-    alignSelf: "center",
+  modalBox: {
+    backgroundColor: COLORS.surface,
+    borderTopLeftRadius: RADIUS.xxl,
+    borderTopRightRadius: RADIUS.xxl,
+    padding: SPACING.lg,
   },
-  modalTitle: {
-    fontFamily: "Inter_700Bold",
-    fontSize: 18,
-    color: "#1A1A1A",
-    marginBottom: 16,
-  },
-  warning: {
-    fontFamily: "Inter_400Regular",
-    fontSize: 14,
-    color: "#D32F2F",
-    marginBottom: 16,
-  },
-  modalButtons: {
+  modalHeader: {
     flexDirection: "row",
     justifyContent: "space-between",
-  },
-  modalButton: {
-    flex: 1,
-    padding: 12,
     alignItems: "center",
-    borderRadius: 8,
-    marginHorizontal: 4,
-    backgroundColor: "#E0E0E0",
+    marginBottom: SPACING.md,
   },
-  modalButtonText: {
-    fontFamily: "Inter_700Bold",
-    fontSize: 16,
-    color: "#1A1A1A",
+  modalIcon: {
+    width: 48,
+    height: 48,
+    borderRadius: RADIUS.full,
+    alignItems: "center",
+    justifyContent: "center",
+    marginBottom: SPACING.sm,
+    alignSelf: "center",
   },
-  pickerContainer: {
-    backgroundColor: "#FFFFFF",
-    borderRadius: 8,
-    marginBottom: 12,
-    borderWidth: 1,
-    borderColor: "#E0E0E0",
-    overflow: "hidden",
+  modalTitle: { ...TYPOGRAPHY.h3 },
+  modalBody: { ...TYPOGRAPHY.body, color: COLORS.textSecondary, marginVertical: SPACING.sm },
+  modalBtns: { flexDirection: "row", gap: SPACING.sm, marginTop: SPACING.sm },
+  cancelBtn: {
+    flex: 1,
+    backgroundColor: COLORS.borderLight,
+    borderRadius: RADIUS.md,
+    paddingVertical: 12,
+    alignItems: "center",
   },
-  picker: {
-    fontFamily: "Inter_400Regular",
-    fontSize: 16,
-    color: "#1A1A1A",
+  cancelTxt: { ...TYPOGRAPHY.bodyBold, color: COLORS.textSecondary },
+  saveBtn: {
+    flex: 2,
+    backgroundColor: COLORS.primary,
+    borderRadius: RADIUS.md,
+    paddingVertical: 12,
+    alignItems: "center",
   },
+  saveTxt: { ...TYPOGRAPHY.bodyBold, color: COLORS.textInverse },
 });
 
 export default RepayToCardScreen;
+

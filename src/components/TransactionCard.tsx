@@ -1,20 +1,18 @@
-import React, { useState, useRef } from "react";
+﻿import React, { useRef } from "react";
 import {
   View,
   Text,
   StyleSheet,
   TouchableOpacity,
-  Alert,
   Modal,
-  Dimensions,
   Animated,
 } from "react-native";
 import { Feather } from "@expo/vector-icons";
 import { useStore } from "../store/store";
 import { Transaction, Card } from "../types/types";
 import moment from "moment";
-
-const { width } = Dimensions.get("window");
+import { COLORS, TYPOGRAPHY, SPACING, RADIUS, SHADOWS } from "../theme/theme";
+import { getCategoryIconFull } from "../constants/categoryIcons";
 
 interface TransactionCardProps {
   transaction: Transaction;
@@ -23,7 +21,7 @@ interface TransactionCardProps {
   showCardName?: boolean;
   showPerson?: boolean;
   showStatus?: boolean;
-  showCashback?: boolean; // Added for cashback display
+  showCashback?: boolean;
 }
 
 const TransactionCard: React.FC<TransactionCardProps> = ({
@@ -33,157 +31,164 @@ const TransactionCard: React.FC<TransactionCardProps> = ({
   showCardName = false,
   showPerson = false,
   showStatus = false,
-  showCashback = false, // Default to false
+  showCashback = false,
 }) => {
-  const { settings, cards } = useStore();
-  const [deleteModalVisible, setDeleteModalVisible] = useState(false);
-
+  const { settings, cards, categories } = useStore();
+  const [deleteModalVisible, setDeleteModalVisible] = React.useState(false);
   const scale = useRef(new Animated.Value(1)).current;
 
-  const handlePressIn = () => {
-    Animated.spring(scale, {
-      toValue: 0.98,
-      friction: 8,
-      tension: 40,
-      useNativeDriver: true,
-    }).start();
-  };
+  const handlePressIn = () =>
+    Animated.spring(scale, { toValue: 0.98, friction: 8, tension: 40, useNativeDriver: true }).start();
 
-  const handlePressOut = () => {
-    Animated.spring(scale, {
-      toValue: 1,
-      friction: 8,
-      tension: 40,
-      useNativeDriver: true,
-    }).start();
-  };
+  const handlePressOut = () =>
+    Animated.spring(scale, { toValue: 1, friction: 8, tension: 40, useNativeDriver: true }).start();
 
-  const handleEdit = () => {
-    if (onEdit) {
-      onEdit(transaction);
-    } else {
-      Alert.alert(
-        "Info",
-        "Edit functionality not implemented for this context."
-      );
-    }
-  };
+  const cardData = cards.find((c: Card) => c.id === transaction.cardId);
+  const cardName = cardData?.name ?? transaction.cardId;
+  const cardColor = cardData?.color ?? COLORS.primary;
 
-  const handleDelete = () => {
-    setDeleteModalVisible(true);
-  };
+  const isPaid = transaction.repaid;
+  const isForOther = transaction.forWhom === "Someone Else";
+  const categoryIcon = getCategoryIconFull(transaction.category, categories);
 
-  const confirmDelete = () => {
-    if (onDelete) {
-      onDelete(transaction.id);
-    } else {
-      useStore.setState((state: { transactions: Transaction[] }) => ({
-        transactions: state.transactions.filter((t) => t.id !== transaction.id),
-      }));
-      Alert.alert("Success", "Transaction deleted successfully!");
-    }
-    setDeleteModalVisible(false);
-  };
-
-  const cardName =
-    cards.find((c: Card) => c.id === transaction.cardId)?.name ||
-    transaction.cardId;
+  const accentColor = isPaid ? COLORS.success : isForOther ? COLORS.warning : COLORS.primary;
 
   return (
-    <Animated.View
-      style={[
-        styles.card,
-        { transform: [{ scale }] },
-        transaction.repaid ? styles.paid : styles.duo,
-      ]}
-    >
-      <View style={styles.textContainer}>
-        <Text style={styles.text}>
-          Date: {moment(transaction.date).format("DD MMM YYYY")}
-        </Text>
-        {showCardName && <Text style={styles.text}>Card: {cardName}</Text>}
-        <Text style={styles.text}>Merchant: {transaction.merchant}</Text>
-        <Text style={styles.text}>Description: {transaction.description}</Text>
-        <Text style={styles.text}>
-          Amount: {settings.currency}
-          {transaction.amount.toFixed(2)}
-        </Text>
-        {showCashback && transaction.cashback !== undefined && (
-          <Text style={[styles.text, styles.cashbackText]}>
-            Cashback: {settings.currency}
-            {transaction.cashback.toFixed(2)}
-          </Text>
-        )}
-        {showPerson && (
-          <Text style={styles.text}>
-            For: {transaction.personName || "Myself"}
-          </Text>
-        )}
-        {showStatus && (
-          <Text style={styles.text}>
-            Status: {transaction.repaid ? "Paid" : "Due"}
-          </Text>
-        )}
+    <Animated.View style={[styles.card, { transform: [{ scale }] }]}>
+      <View style={[styles.accentBar, { backgroundColor: accentColor }]} />
+
+      <View style={[styles.iconWrap, { backgroundColor: accentColor + "18" }]}>
+        <Feather name={categoryIcon} size={20} color={accentColor} />
       </View>
+
+      <View style={styles.content}>
+        <View style={styles.topRow}>
+          <Text style={styles.merchant} numberOfLines={1}>
+            {transaction.merchant || "Unknown"}
+          </Text>
+          <Text style={[styles.amount, { color: isPaid ? COLORS.textSecondary : COLORS.text }]}>
+            {settings.currency}
+            {transaction.amount.toLocaleString("en-IN", { minimumFractionDigits: 2 })}
+          </Text>
+        </View>
+
+        <Text style={styles.description} numberOfLines={1}>
+          {transaction.description}
+        </Text>
+
+        <View style={styles.metaRow}>
+          <Text style={styles.meta}>
+            {moment(transaction.date, "YYYY-MM-DD").format("DD MMM YYYY")}
+          </Text>
+          {transaction.category ? (
+            <>
+              <Text style={styles.metaDot}> · </Text>
+              <Text style={styles.meta}>{transaction.category}</Text>
+            </>
+          ) : null}
+          {transaction.paymentType === "EMI" ? (
+            <>
+              <Text style={styles.metaDot}> · </Text>
+              <Text style={[styles.meta, { color: COLORS.info }]}>EMI</Text>
+            </>
+          ) : null}
+        </View>
+
+        <View style={styles.badgeRow}>
+          {showCardName && (
+            <View style={[styles.badge, { backgroundColor: cardColor + "22" }]}>
+              <Feather name="credit-card" size={9} color={cardColor} />
+              <Text style={[styles.badgeText, { color: cardColor }]}>{cardName}</Text>
+            </View>
+          )}
+          {showPerson && isForOther && (
+            <View style={[styles.badge, { backgroundColor: COLORS.warningLight }]}>
+              <Feather name="user" size={9} color={COLORS.warning} />
+              <Text style={[styles.badgeText, { color: COLORS.warning }]}>
+                {transaction.personName ?? "—"}
+              </Text>
+            </View>
+          )}
+          {showStatus && (
+            <View style={[styles.badge, { backgroundColor: isPaid ? COLORS.successLight : COLORS.dangerLight }]}>
+              <Text style={[styles.badgeText, { color: isPaid ? COLORS.success : COLORS.danger }]}>
+                {isPaid ? "Paid" : "Due"}
+              </Text>
+            </View>
+          )}
+          {showCashback && (transaction.cashback ?? 0) > 0 && (
+            <View style={[styles.badge, { backgroundColor: COLORS.successLight }]}>
+              <Feather name="trending-up" size={9} color={COLORS.success} />
+              <Text style={[styles.badgeText, { color: COLORS.success }]}>
+                {settings.currency}
+                {(transaction.cashback ?? 0).toFixed(2)} CB
+              </Text>
+            </View>
+          )}
+        </View>
+      </View>
+
       {(onEdit || onDelete) && (
         <View style={styles.actions}>
           {onEdit && (
             <TouchableOpacity
-              onPress={handleEdit}
+              onPress={() => onEdit(transaction)}
               onPressIn={handlePressIn}
               onPressOut={handlePressOut}
-              style={styles.actionButton}
+              style={styles.actionBtn}
               accessibilityLabel="Edit Transaction"
-              accessibilityRole="button"
             >
-              <Feather name="edit" size={18} color="#1976D2" />
+              <Feather name="edit-2" size={15} color={COLORS.primary} />
             </TouchableOpacity>
           )}
           {onDelete && (
             <TouchableOpacity
-              onPress={handleDelete}
+              onPress={() => setDeleteModalVisible(true)}
               onPressIn={handlePressIn}
               onPressOut={handlePressOut}
-              style={styles.actionButton}
+              style={styles.actionBtn}
               accessibilityLabel="Delete Transaction"
-              accessibilityRole="button"
             >
-              <Feather name="trash-2" size={18} color="#D32F2F" />
+              <Feather name="trash-2" size={15} color={COLORS.danger} />
             </TouchableOpacity>
           )}
         </View>
       )}
+
       <Modal
         visible={deleteModalVisible}
-        animationType="slide"
-        transparent={true}
+        animationType="fade"
+        transparent
         onRequestClose={() => setDeleteModalVisible(false)}
       >
         <View style={styles.modalOverlay}>
-          <View style={styles.modal}>
-            <Text style={styles.modalTitle}>Delete Transaction</Text>
-            <Text style={styles.modalText}>
-              Are you sure you want to delete this transaction? This action
-              cannot be undone.
+          <View style={styles.modalBox}>
+            <View style={[styles.modalIcon, { backgroundColor: COLORS.dangerLight }]}>
+              <Feather name="trash-2" size={24} color={COLORS.danger} />
+            </View>
+            <Text style={styles.modalTitle}>Delete Transaction?</Text>
+            <Text style={styles.modalBody}>
+              Permanently remove the transaction for{" "}
+              <Text style={{ fontFamily: "Inter_700Bold", color: COLORS.text }}>
+                {transaction.merchant}
+              </Text>
+              . This cannot be undone.
             </Text>
-            <View style={styles.modalButtons}>
+            <View style={styles.modalBtns}>
               <TouchableOpacity
-                style={[styles.modalButton, styles.cancelButton]}
+                style={styles.modalCancelBtn}
                 onPress={() => setDeleteModalVisible(false)}
-                accessibilityLabel="Cancel Delete"
-                accessibilityRole="button"
               >
-                <Text style={styles.modalButtonText}>Cancel</Text>
+                <Text style={styles.modalCancelTxt}>Cancel</Text>
               </TouchableOpacity>
               <TouchableOpacity
-                style={[styles.modalButton, styles.deleteButton]}
-                onPress={confirmDelete}
-                accessibilityLabel="Confirm Delete"
-                accessibilityRole="button"
+                style={styles.modalDeleteBtn}
+                onPress={() => {
+                  setDeleteModalVisible(false);
+                  onDelete?.(transaction.id);
+                }}
               >
-                <Text style={[styles.modalButtonText, { color: "#D32F2F" }]}>
-                  Delete
-                </Text>
+                <Text style={styles.modalDeleteTxt}>Delete</Text>
               </TouchableOpacity>
             </View>
           </View>
@@ -195,92 +200,153 @@ const TransactionCard: React.FC<TransactionCardProps> = ({
 
 const styles = StyleSheet.create({
   card: {
-    backgroundColor: "#FFFFFF",
-    borderRadius: 8,
-    marginBottom: 8,
-    shadowColor: "#000",
-    shadowOpacity: 0.1,
-    shadowRadius: 4,
-    shadowOffset: { width: 0, height: 2 },
-    elevation: 2,
-    position: "relative",
-  },
-  duo: {
-    backgroundColor: "#FFEBEE",
-  },
-  paid: {
-    backgroundColor: "#E8F5E9",
-  },
-  textContainer: {
-    padding: 12,
-    maxWidth: width - 96, // Adjusted for narrow screens and icon space
-  },
-  text: {
-    fontFamily: "Inter_400Regular",
-    fontSize: 14,
-    color: "#4A4A4A",
-    marginBottom: 4,
-  },
-  cashbackText: {
-    color: "#388E3C", // Green to match "Repay to Card" button
-  },
-  actions: {
-    position: "absolute",
-    top: 8,
-    right: 8,
+    backgroundColor: COLORS.surface,
+    borderRadius: RADIUS.lg,
+    marginBottom: SPACING.sm,
     flexDirection: "row",
     alignItems: "center",
-    gap: 8, // Adjusted for tighter spacing
+    overflow: "hidden",
+    ...SHADOWS.sm,
   },
-  actionButton: {
-    padding: 4,
+  accentBar: {
+    width: 3,
+    alignSelf: "stretch",
+    borderTopLeftRadius: RADIUS.lg,
+    borderBottomLeftRadius: RADIUS.lg,
+  },
+  iconWrap: {
+    width: 40,
+    height: 40,
+    borderRadius: RADIUS.full,
+    alignItems: "center",
+    justifyContent: "center",
+    marginLeft: SPACING.sm,
+    flexShrink: 0,
+  },
+  content: {
+    flex: 1,
+    paddingVertical: SPACING.sm + 2,
+    paddingHorizontal: SPACING.sm,
+  },
+  topRow: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+  },
+  merchant: {
+    ...TYPOGRAPHY.bodySemiBold,
+    flex: 1,
+    marginRight: SPACING.sm,
+  },
+  amount: {
+    ...TYPOGRAPHY.bodyBold,
+    flexShrink: 0,
+  },
+  description: {
+    ...TYPOGRAPHY.caption,
+    marginTop: 1,
+  },
+  metaRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    marginTop: 3,
+  },
+  meta: {
+    ...TYPOGRAPHY.micro,
+    color: COLORS.textMuted,
+  },
+  metaDot: {
+    ...TYPOGRAPHY.micro,
+    color: COLORS.textMuted,
+  },
+  badgeRow: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    marginTop: 5,
+    gap: 4,
+  },
+  badge: {
+    flexDirection: "row",
+    alignItems: "center",
+    borderRadius: RADIUS.full,
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    gap: 3,
+  },
+  badgeText: {
+    fontFamily: "Inter_700Bold",
+    fontSize: 9,
+  },
+  actions: {
+    flexDirection: "column",
+    gap: SPACING.sm,
+    paddingRight: SPACING.sm,
+    paddingVertical: SPACING.sm,
+  },
+  actionBtn: {
+    padding: 6,
+    borderRadius: RADIUS.sm,
+    backgroundColor: COLORS.borderLight,
   },
   modalOverlay: {
     flex: 1,
-    backgroundColor: "rgba(0, 0, 0, 0.5)",
+    backgroundColor: "rgba(0,0,0,0.45)",
     justifyContent: "center",
     alignItems: "center",
+    padding: SPACING.lg,
   },
-  modal: {
-    backgroundColor: "#FFFFFF",
-    borderRadius: 12,
-    padding: 16,
-    width: width * 0.9,
-    alignSelf: "center",
+  modalBox: {
+    backgroundColor: COLORS.surface,
+    borderRadius: RADIUS.xl,
+    padding: SPACING.lg,
+    width: "100%",
+    alignItems: "center",
+    ...SHADOWS.lg,
+  },
+  modalIcon: {
+    width: 56,
+    height: 56,
+    borderRadius: RADIUS.full,
+    alignItems: "center",
+    justifyContent: "center",
+    marginBottom: SPACING.md,
   },
   modalTitle: {
-    fontFamily: "Inter_700Bold",
-    fontSize: 18,
-    color: "#1A1A1A",
-    marginBottom: 12,
+    ...TYPOGRAPHY.h3,
+    marginBottom: SPACING.sm,
   },
-  modalText: {
-    fontFamily: "Inter_400Regular",
-    fontSize: 14,
-    color: "#4A4A4A",
-    marginBottom: 16,
+  modalBody: {
+    ...TYPOGRAPHY.body,
+    color: COLORS.textSecondary,
+    textAlign: "center",
+    marginBottom: SPACING.lg,
   },
-  modalButtons: {
+  modalBtns: {
     flexDirection: "row",
-    justifyContent: "space-between",
-    gap: 8,
+    gap: SPACING.sm,
+    width: "100%",
   },
-  modalButton: {
+  modalCancelBtn: {
     flex: 1,
-    padding: 12,
-    borderRadius: 8,
+    borderRadius: RADIUS.md,
+    paddingVertical: 12,
+    backgroundColor: COLORS.borderLight,
     alignItems: "center",
   },
-  cancelButton: {
-    backgroundColor: "#E0E0E0",
+  modalCancelTxt: {
+    ...TYPOGRAPHY.bodyBold,
+    color: COLORS.textSecondary,
   },
-  deleteButton: {
-    backgroundColor: "#FFEBEE",
+  modalDeleteBtn: {
+    flex: 1,
+    borderRadius: RADIUS.md,
+    paddingVertical: 12,
+    backgroundColor: COLORS.dangerLight,
+    alignItems: "center",
   },
-  modalButtonText: {
-    fontFamily: "Inter_700Bold",
-    fontSize: 16,
-    color: "#1A1A1A",
+  modalDeleteTxt: {
+    ...TYPOGRAPHY.bodyBold,
+    color: COLORS.danger,
   },
 });
 

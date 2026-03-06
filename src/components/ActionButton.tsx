@@ -4,11 +4,10 @@ import {
   Text,
   StyleSheet,
   Animated,
-  Dimensions,
+  View,
 } from "react-native";
 import { Feather } from "@expo/vector-icons";
-
-const { width } = Dimensions.get("window");
+import { COLORS, RADIUS, SHADOWS, SPACING, TYPOGRAPHY } from "../theme/theme";
 
 interface ActionButtonProps {
   label: string;
@@ -17,6 +16,7 @@ interface ActionButtonProps {
   onPress: () => void;
   accessibilityLabel?: string;
   accessibilityRole?: string;
+  subtitle?: string;
 }
 
 const ActionButton: React.FC<ActionButtonProps> = ({
@@ -25,13 +25,13 @@ const ActionButton: React.FC<ActionButtonProps> = ({
   color,
   onPress,
   accessibilityLabel,
-  accessibilityRole,
+  subtitle,
 }) => {
   const scale = useRef(new Animated.Value(1)).current;
 
   const handlePressIn = () => {
     Animated.spring(scale, {
-      toValue: 0.95,
+      toValue: 0.94,
       friction: 8,
       tension: 40,
       useNativeDriver: true,
@@ -47,59 +47,63 @@ const ActionButton: React.FC<ActionButtonProps> = ({
     }).start();
   };
 
+  // Derive a lighter background — use 20% opacity tint (33 in hex)
+  const bgStyle = { backgroundColor: color + "33" };
+
   return (
-    <Animated.View
-      style={[
-        styles.container,
-        { backgroundColor: color },
-        { transform: [{ scale }] },
-      ]}
-    >
+    <Animated.View style={[styles.wrapper, { transform: [{ scale }] }]}>
       <TouchableOpacity
-        style={styles.button}
+        style={[styles.button, bgStyle]}
         onPress={onPress}
         onPressIn={handlePressIn}
         onPressOut={handlePressOut}
-        accessibilityLabel={label}
-        accessibilityRole={"button"}
+        accessibilityLabel={accessibilityLabel ?? label}
+        accessibilityRole="button"
+        activeOpacity={0.85}
       >
-        <Feather name={icon} size={20} color="#FFFFFF" />
-        <Text style={styles.label}>{label}</Text>
+        <View style={[styles.iconCircle, { backgroundColor: color }]}>
+          <Feather name={icon} size={18} color={COLORS.textInverse} />
+        </View>
+        <Text style={[styles.label, { color }]} numberOfLines={1}>{label}</Text>
+        {subtitle ? (
+          <Text style={styles.subtitle} numberOfLines={1}>{subtitle}</Text>
+        ) : null}
       </TouchableOpacity>
     </Animated.View>
   );
 };
 
 const styles = StyleSheet.create({
-  container: {
+  wrapper: {
     flex: 1,
-    minWidth: 100, // Minimum width to prevent shrinking too much
-    maxWidth: (width - 28 - 8) / 3, // Screen width - padding - gaps
-    height: 80,
-    borderRadius: 12,
-    justifyContent: "center",
-    alignItems: "center",
-    marginHorizontal: 2, // Reduced for tighter spacing
-    shadowColor: "#000",
-    shadowOpacity: 0.1,
-    shadowRadius: 4,
-    elevation: 2,
+    ...SHADOWS.sm,
   },
   button: {
     flex: 1,
-    flexDirection: "column", // Align icon and text horizontally
-    justifyContent: "center",
+    borderRadius: RADIUS.lg,
+    paddingVertical: SPACING.sm + 2,
+    paddingHorizontal: SPACING.sm,
     alignItems: "center",
-    paddingHorizontal: 8,
+    justifyContent: "center",
+    minHeight: 76,
+  },
+  iconCircle: {
+    width: 36,
+    height: 36,
+    borderRadius: RADIUS.full,
+    alignItems: "center",
+    justifyContent: "center",
+    marginBottom: 6,
   },
   label: {
-    fontFamily: "Inter_700Bold",
-    fontSize: 14, // Reduced to prevent wrapping
-    color: "#FFFFFF",
-    //marginLeft: 6, // Space between icon and text
-    flexShrink: 1, // Allow text to shrink if needed
-    marginTop: 4, // Add vertical margin
+    ...TYPOGRAPHY.captionBold,
+    fontSize: 11,
     textAlign: "center",
+  },
+  subtitle: {
+    ...TYPOGRAPHY.micro,
+    textAlign: "center",
+    marginTop: 1,
   },
 });
 

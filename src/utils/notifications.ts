@@ -4,7 +4,7 @@ import AsyncStorage from "@react-native-async-storage/async-storage";
 export const DEFAULT_NOTIFICATION_TIME = "09:00";
 
 export const storeNotificationPreference = async (
-  type: "dueDate" | "owedMoney" | "billEmi",
+  type: "dueDate" | "owedMoney" | "billEmi" | "subscription",
   enabled: boolean,
   time: string
 ) => {
@@ -14,14 +14,13 @@ export const storeNotificationPreference = async (
       `notification_${type}`,
       JSON.stringify(preference)
     );
-    console.log(`Stored ${type} notification preference:`, preference);
   } catch (error) {
     console.error(`Failed to store ${type} notification preference:`, error);
   }
 };
 
 export const getNotificationPreference = async (
-  type: "dueDate" | "owedMoney" | "billEmi"
+  type: "dueDate" | "owedMoney" | "billEmi" | "subscription"
 ) => {
   try {
     const value = await AsyncStorage.getItem(`notification_${type}`);
@@ -63,9 +62,6 @@ export const scheduleDueDateReminder = async (
       },
       trigger,
     });
-    console.log(
-      `Scheduled due date notification with identifier: ${identifier} for ${scheduleDate.toISOString()}`
-    );
     return identifier;
   } catch (error) {
     console.error(
@@ -107,9 +103,6 @@ export const scheduleBillAndEmiReminder = async (
       },
       trigger,
     });
-    console.log(
-      `Scheduled bill/EMI notification with identifier: ${identifier} for ${scheduleDate.toISOString()}`
-    );
     return identifier;
   } catch (error) {
     console.error(
@@ -154,9 +147,6 @@ export const scheduleOwedMoneyReminder = async (
       },
       trigger,
     });
-    console.log(
-      `Scheduled owed money notification with identifier: ${identifier} for ${scheduleDate.toISOString()}`
-    );
     return identifier;
   } catch (error) {
     console.error(
@@ -197,9 +187,6 @@ export const scheduleGeneralOwedMoneyReminder = async (
       },
       trigger,
     });
-    console.log(
-      `Scheduled general owed money notification with identifier: ${identifier} for ${scheduleDate.toISOString()}`
-    );
     return identifier;
   } catch (error) {
     console.error(
@@ -210,10 +197,50 @@ export const scheduleGeneralOwedMoneyReminder = async (
   }
 };
 
+export const scheduleSubscriptionReminder = async (
+  subName: string,
+  billingDate: Date,
+  time: string
+) => {
+  const [hour, minute] = time.split(":").map(Number);
+  const scheduleDate = new Date(billingDate);
+  scheduleDate.setHours(hour, minute, 0, 0);
+
+  const now = new Date();
+  if (scheduleDate <= now) {
+    console.warn(
+      `Subscription billing date ${scheduleDate.toISOString()} is in the past. Skipping notification.`
+    );
+    return null;
+  }
+
+  const trigger = {
+    type: "timeInterval",
+    seconds: Math.floor((scheduleDate.getTime() - now.getTime()) / 1000),
+    repeats: false,
+  } as Notifications.TimeIntervalTriggerInput;
+
+  try {
+    const identifier = await Notifications.scheduleNotificationAsync({
+      content: {
+        title: `Subscription Due: ${subName}`,
+        body: `Your ${subName} subscription renews today. Make sure your payment method is ready.`,
+      },
+      trigger,
+    });
+    return identifier;
+  } catch (error) {
+    console.error(
+      `Failed to schedule subscription notification for ${subName}:`,
+      error
+    );
+    return null;
+  }
+};
+
 export const cancelNotificationById = async (identifier: string) => {
   try {
     await Notifications.cancelScheduledNotificationAsync(identifier);
-    console.log(`Canceled notification with identifier: ${identifier}`);
   } catch (error) {
     console.error(`Failed to cancel notification ${identifier}:`, error);
   }

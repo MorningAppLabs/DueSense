@@ -27,7 +27,6 @@ export const currencies = [
   { label: "CZK (Kč)", value: "Kč" },
   { label: "HUF (Ft)", value: "Ft" },
   { label: "ILS (₪)", value: "₪" },
-  { label: "NOK (kr)", value: "kr" },
   { label: "DKK (kr)", value: "kr" },
   { label: "TRY (₺)", value: "₺" },
   { label: "CLP ($)", value: "$" },

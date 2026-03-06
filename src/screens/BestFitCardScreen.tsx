@@ -1,507 +1,500 @@
-import React, { useState, useRef } from "react";
+﻿import React, { useState, useMemo } from "react";
 import {
   View,
   Text,
   TextInput,
   StyleSheet,
   TouchableOpacity,
-  FlatList,
-  Alert,
-  SafeAreaView,
   ScrollView,
   Animated,
+  StatusBar,
+  KeyboardAvoidingView,
+  Platform,
 } from "react-native";
-import { Picker } from "@react-native-picker/picker";
+import { SafeAreaView } from "react-native-safe-area-context";
+import { Feather } from "@expo/vector-icons";
+import { useNavigation } from "@react-navigation/native";
+import { NativeStackNavigationProp } from "@react-navigation/native-stack";
 import { useStore } from "../store/store";
-import moment from "moment";
-import { Card } from "../types/types";
-import { useSafeAreaInsets } from "react-native-safe-area-context"; // Added for notch handling
+import { Card, Transaction, Category } from "../types/types";
+import ProgressBar from "../components/ProgressBar";
+import { formatAmount } from "../utils/billingUtils";
+import { getCategoryIconFull, DEFAULT_CATEGORIES } from "../constants/categoryIcons";
+import { COLORS, TYPOGRAPHY, SPACING, RADIUS, SHADOWS, getCardColor } from "../theme/theme";
 
-interface CashbackResult {
-  cardId: string;
-  cardName: string;
+type RootStackParamList = { BestFitCard: undefined };
+type NavProp = NativeStackNavigationProp<RootStackParamList>;
+
+type PaymentType = "online" | "offline" | "both";
+
+interface CardResult {
+  card: Card;
+  index: number;
   cashback: number;
-  remaining: number;
+  available: number;
+  utilization: number;
+  reasons: string[];
 }
 
 const BestFitCardScreen: React.FC = () => {
-  const { cards, settings, transactions, merchants, categories } = useStore();
-  const [amount, setAmount] = useState("");
-  const [merchant, setMerchant] = useState("");
-  const [useCustomMerchant, setUseCustomMerchant] = useState(false);
-  const [category, setCategory] = useState("");
-  const [onlineOffline, setOnlineOffline] = useState<"Online" | "Offline">(
-    "Online"
-  );
-  const [paymentType, setPaymentType] = useState<"Full Payment" | "EMI">(
-    "Full Payment"
-  );
-  const [results, setResults] = useState<CashbackResult[]>([]);
-  const [bestCard, setBestCard] = useState<CashbackResult | null>(null);
+  const navigation = useNavigation<NavProp>();
+  const { cards, transactions, repayments, settings, categories } = useStore();
 
-  // Animation setup using Animated
-  const scale = useRef(new Animated.Value(1)).current;
-  const insets = useSafeAreaInsets(); // Get safe area insets for notch/status bar
+  const [amount, setAmountRaw] = useState<string>("1000");
+  const [category, setCategory] = useState("Others");
+  const [paymentType, setPaymentType] = useState<PaymentType>("both");
+  const [isOnline, setIsOnline] = useState(true);
+  const [showCustom, setShowCustom] = useState(false);
+  const [customInputValue, setCustomInputValue] = useState("");
 
-  const handlePressIn = () => {
-    Animated.spring(scale, {
-      toValue: 0.95,
-      friction: 8,
-      tension: 40,
-      useNativeDriver: true,
-    }).start();
-  };
+  // Merge + sort alphabetically; "Others" always last
+  const allCategories = useMemo<Category[]>(() => {
+    const customNames = new Set(categories.map((c) => c.name.toLowerCase()));
+    const builtIn = DEFAULT_CATEGORIES.filter((d) => !customNames.has(d.name.toLowerCase()));
+    const all = [...builtIn, ...categories];
+    const rest = all.filter((c) => c.name !== "Others").sort((a, b) => a.name.localeCompare(b.name));
+    const others = all.filter((c) => c.name === "Others");
+    return [...rest, ...others];
+  }, [categories]);
 
-  const handlePressOut = () => {
-    Animated.spring(scale, {
-      toValue: 1,
-      friction: 8,
-      tension: 40,
-      useNativeDriver: true,
-    }).start();
-  };
+  const amountNum = Number(amount) || 0;
 
-  // Collect unique categories from cashback rules and store
-  const availableCategories = Array.from(
-    new Set([
-      ...categories.map((cat) => cat.toUpperCase()),
-      ...cards
-        .flatMap((card: Card) =>
-          card.cashbackRules.flatMap((rule) => rule.categories)
-        )
-        .filter((cat) => cat)
-        .map((cat) => cat.toUpperCase()),
-    ])
-  );
+  const results = useMemo<CardResult[]>(() => {
+    return cards
+      .map((card: Card, idx: number) => {
+        // Available credit
+        const spent = transactions
+          .filter((t: Transaction) => t.cardId === card.id)
+          .reduce((s: number, t: Transaction) => s + t.amount, 0);
+        const repaid = repayments
+          .filter((r: any) => r.cardId === card.id)
+          .reduce((s: number, r: any) => s + r.amount, 0);
+        const outstanding = Math.max(0, spent - repaid);
+        const available = Math.max(0, card.limit - outstanding);
+        const utilization = card.limit > 0 ? (outstanding / card.limit) * 100 : 0;
 
-  // Collect unique merchants from cashback rules and store
-  const availableMerchants = Array.from(
-    new Set([
-      ...merchants.map((m) => m.toUpperCase()),
-      ...cards
-        .flatMap((card: Card) =>
-          card.cashbackRules.map((rule) => rule.merchant).filter(Boolean)
-        )
-        .map((m) => m.toUpperCase()),
-    ])
-  );
-
-  const getBillingCycleDates = (card: Card, transactionDate: string) => {
-    const date = moment(transactionDate, "YYYY-MM-DD");
-    const year = date.year();
-    const month = date.month() + 1;
-    const startDay = card.billingCycle.start;
-    const endDay = card.billingCycle.end;
-
-    let cycleStart, cycleEnd;
-    if (startDay <= endDay) {
-      cycleStart = moment(`${year}-${month}-${startDay}`, "YYYY-MM-DD");
-      cycleEnd = moment(`${year}-${month}-${endDay}`, "YYYY-MM-DD");
-    } else {
-      cycleStart = moment(`${year}-${month}-${startDay}`, "YYYY-MM-DD");
-      cycleEnd = moment(`${year}-${month}-${endDay}`, "YYYY-MM-DD").add(
-        1,
-        "month"
-      );
-    }
-
-    if (date.isBefore(cycleStart)) {
-      cycleStart.subtract(1, "month");
-      cycleEnd.subtract(1, "month");
-    } else if (date.isAfter(cycleEnd)) {
-      cycleStart.add(1, "month");
-      cycleEnd.add(1, "month");
-    }
-
-    return { start: cycleStart, end: cycleEnd };
-  };
-
-  const calculateCashback = () => {
-    if (!amount || Number(amount) <= 0 || !merchant) {
-      Alert.alert("Error", "Please fill all required fields.");
-      return;
-    }
-
-    const today = moment().format("YYYY-MM-DD");
-    const newResults: CashbackResult[] = cards.map((card: Card) => {
-      let cashback = 0;
-      let remaining = Infinity;
-      const rule = card.cashbackRules.find(
-        (r) =>
-          (r.onlineOffline === onlineOffline || r.onlineOffline === "Both") &&
-          r.paymentType === paymentType &&
-          (!r.merchant ||
-            r.merchant.toUpperCase() === merchant.toUpperCase()) &&
-          (!category ||
-            r.categories.length === 0 ||
-            r.categories.includes(category.toUpperCase()))
-      );
-
-      if (rule) {
-        const { start, end } = getBillingCycleDates(card, today);
-        const earned = transactions
-          .filter(
-            (t) =>
-              t.cardId === card.id &&
-              moment(t.date, "YYYY-MM-DD").isBetween(
-                start,
-                end,
-                undefined,
-                "[]"
-              ) &&
-              (rule.onlineOffline === t.onlineOffline ||
-                rule.onlineOffline === "Both") &&
-              rule.paymentType === t.paymentType &&
-              (!rule.merchant ||
-                rule.merchant.toUpperCase() === t.merchant.toUpperCase()) &&
-              (!category ||
-                rule.categories.length === 0 ||
-                rule.categories.includes(t.category.toUpperCase()))
-          )
-          .reduce((sum, t) => sum + (t.cashback || 0), 0);
-
-        const ruleLimit = rule.limit || Infinity;
-        remaining = Math.max(0, ruleLimit - earned);
-        const potentialCashback = (Number(amount) * rule.percentage) / 100;
-        cashback = Math.min(potentialCashback, remaining);
-        remaining = Math.max(0, ruleLimit - (earned + cashback));
-      }
-
-      return {
-        cardId: card.id,
-        cardName: card.name.toUpperCase(),
-        cashback,
-        remaining,
-      };
-    });
-
-    const validResults = newResults.filter((r) => r.cashback >= 0);
-    if (validResults.length === 0) {
-      Alert.alert("No Matching Cards", "No cards match the provided criteria.");
-      setResults([]);
-      setBestCard(null);
-      return;
-    }
-
-    const best = validResults.reduce(
-      (prev, curr) => (curr.cashback > prev.cashback ? curr : prev),
-      validResults[0]
-    );
-    setResults(validResults);
-    setBestCard(best);
-  };
-
-  const renderResult = ({ item }: { item: CashbackResult }) => (
-    <View
-      style={[
-        styles.resultCard,
-        item.cardId === bestCard?.cardId && styles.bestCard,
-      ]}
-    >
-      <Text style={styles.resultText}>{item.cardName}</Text>
-      <Text style={styles.resultText}>
-        Cashback: {settings.currency}
-        {item.cashback.toFixed(2)}
-      </Text>
-      <Text style={styles.resultText}>
-        Remaining: {settings.currency}
-        {item.remaining === Infinity ? "Unlimited" : item.remaining.toFixed(2)}
-      </Text>
-    </View>
-  );
-
-  return (
-    <SafeAreaView style={[styles.safeContainer, { paddingTop: insets.top }]}>
-      <ScrollView
-        style={styles.container}
-        contentContainerStyle={{ paddingBottom: 48 }}
-      >
-        <Text style={styles.header}>Best Fit Card</Text>
-        <Text style={styles.instruction}>
-          This section helps you choose the card that offers the maximum
-          cashback for your transaction.
-        </Text>
-        <Text style={styles.warning}>
-          Caution: Cashback calculations are based on the rules you set. They
-          are not linked to merchant or card company offers. Always verify
-          cashback details with the merchant and card issuer. The developer is
-          not responsible for any financial loss.
-        </Text>
-        <Text style={styles.label}>Transaction Amount</Text>
-        <TextInput
-          style={styles.input}
-          placeholder={`${settings.currency}0.00`}
-          keyboardType="numeric"
-          value={amount}
-          onChangeText={setAmount}
-          accessibilityLabel="Transaction Amount"
-        />
-        <Text style={styles.label}>Merchant Name</Text>
-        <View style={styles.pickerContainer}>
-          <Picker
-            selectedValue={useCustomMerchant ? "Other" : merchant}
-            onValueChange={(value) => {
-              setMerchant(value === "Other" ? "" : value.toUpperCase());
-              setUseCustomMerchant(value === "Other");
-            }}
-            style={styles.picker}
-          >
-            <Picker.Item label="Select Merchant" value="" />
-            {availableMerchants.map((m) => (
-              <Picker.Item
-                key={m}
-                label={m.toUpperCase()}
-                value={m.toUpperCase()}
-              />
-            ))}
-            <Picker.Item label="Other" value="Other" />
-          </Picker>
-        </View>
-        {useCustomMerchant && (
-          <>
-            <Text style={styles.label}>Custom Merchant Name</Text>
-            <TextInput
-              style={styles.input}
-              placeholder="e.g., AMAZON"
-              value={merchant}
-              onChangeText={(text) =>
-                setMerchant(text.replace(/,/g, "").toUpperCase())
-              }
-              accessibilityLabel="Custom Merchant Name"
-            />
-            <Text style={styles.instruction}>
-              Enter one merchant name without commas (e.g., AMAZON).
-            </Text>
-          </>
-        )}
-        <Text style={styles.label}>Category</Text>
-        <View style={styles.pickerContainer}>
-          <Picker
-            selectedValue={category || "NO_SPECIFIC"}
-            onValueChange={(value) =>
-              setCategory(value === "NO_SPECIFIC" ? "" : value.toUpperCase())
+        // Cashback estimation using real CashbackRule structure
+        let cashback = 0;
+        const reasons: string[] = [];
+        const rules = card.cashbackRules ?? [];
+        if (rules.length > 0) {
+          let best = 0;
+          const txOnlineOffline = isOnline ? "Online" : "Offline";
+          for (const rule of rules) {
+            // category filter
+            if (rule.categories && rule.categories.length > 0) {
+              const matches = rule.categories.some(
+                (c: string) => c.toLowerCase() === category.toLowerCase()
+              );
+              if (!matches) continue;
             }
-            style={styles.picker}
-          >
-            <Picker.Item label="Select Category" value="" />
-            {availableCategories.map((cat) => (
-              <Picker.Item
-                key={cat}
-                label={cat.toUpperCase()}
-                value={cat.toUpperCase()}
-              />
-            ))}
-            <Picker.Item label="No Specific Category" value="NO_SPECIFIC" />
-          </Picker>
-        </View>
-        <Text style={styles.label}>Transaction Type</Text>
-        <View style={styles.toggle}>
-          <TouchableOpacity
-            style={[
-              styles.toggleButton,
-              onlineOffline === "Online" && styles.toggleActive,
-            ]}
-            onPress={() => setOnlineOffline("Online")}
-            accessibilityLabel="Online Transaction"
-            accessibilityRole="button"
-          >
-            <Text style={styles.toggleText}>Online</Text>
-          </TouchableOpacity>
-          <TouchableOpacity
-            style={[
-              styles.toggleButton,
-              onlineOffline === "Offline" && styles.toggleActive,
-            ]}
-            onPress={() => setOnlineOffline("Offline")}
-            accessibilityLabel="Offline Transaction"
-            accessibilityRole="button"
-          >
-            <Text style={styles.toggleText}>Offline</Text>
-          </TouchableOpacity>
-        </View>
-        <Text style={styles.label}>Payment Type</Text>
-        <View style={styles.toggle}>
-          <TouchableOpacity
-            style={[
-              styles.toggleButton,
-              paymentType === "Full Payment" && styles.toggleActive,
-            ]}
-            onPress={() => setPaymentType("Full Payment")}
-            accessibilityLabel="Full Payment"
-            accessibilityRole="button"
-          >
-            <Text style={styles.toggleText}>Full Payment</Text>
-          </TouchableOpacity>
-          <TouchableOpacity
-            style={[
-              styles.toggleButton,
-              paymentType === "EMI" && styles.toggleActive,
-            ]}
-            onPress={() => setPaymentType("EMI")}
-            accessibilityLabel="EMI Payment"
-            accessibilityRole="button"
-          >
-            <Text style={styles.toggleText}>EMI</Text>
-          </TouchableOpacity>
-        </View>
-        <Animated.View style={[styles.checkButton, { transform: [{ scale }] }]}>
-          <TouchableOpacity
-            onPress={calculateCashback}
-            onPressIn={handlePressIn}
-            onPressOut={handlePressOut}
-            accessibilityLabel="Check Best Fit Card"
-            accessibilityRole="button"
-          >
-            <Text style={styles.checkButtonText}>Check Best Fit Card</Text>
-          </TouchableOpacity>
-        </Animated.View>
-        {bestCard && (
-          <View style={styles.bestCardContainer}>
-            <Text style={styles.bestCardText}>
-              Best Card: {bestCard.cardName} ({settings.currency}
-              {bestCard.cashback.toFixed(2)})
-            </Text>
+            // online/offline filter
+            if (rule.onlineOffline !== "Both" && rule.onlineOffline !== txOnlineOffline) continue;
+            if (rule.percentage > best) best = rule.percentage;
+          }
+          if (best > 0) {
+            cashback = (amountNum * best) / 100;
+            reasons.push(`${best}% on ${category}`);
+          }
+        }
+
+        return { card, index: idx, cashback, available, utilization, reasons };
+      })
+      .filter((r: CardResult) => r.available >= amountNum)
+      .sort((a: CardResult, b: CardResult) => {
+        if (b.cashback !== a.cashback) return b.cashback - a.cashback;
+        return a.utilization - b.utilization;
+      });
+  }, [cards, transactions, repayments, amount, category, isOnline]);
+
+  const unfitCards = useMemo<CardResult[]>(() => {
+    return cards.map((card: Card, idx: number) => {
+      const spent = transactions
+        .filter((t: Transaction) => t.cardId === card.id)
+        .reduce((s: number, t: Transaction) => s + t.amount, 0);
+      const repaid = repayments
+        .filter((r: any) => r.cardId === card.id)
+        .reduce((s: number, r: any) => s + r.amount, 0);
+      const outstanding = Math.max(0, spent - repaid);
+      const available = Math.max(0, card.limit - outstanding);
+      const utilization = card.limit > 0 ? (outstanding / card.limit) * 100 : 0;
+      return { card, index: idx, cashback: 0, available, utilization, reasons: [] };
+    }).filter((r: CardResult) => r.available < amountNum);
+  }, [cards, transactions, repayments, amount]);
+
+  const Chip = ({ label, icon, active, onPress, color }: { label: string; icon?: string; active: boolean; onPress: () => void; color?: string }) => (
+    <TouchableOpacity
+      style={[styles.chip, active && { backgroundColor: color ?? COLORS.primary, borderColor: color ?? COLORS.primary }]}
+      onPress={onPress}
+      activeOpacity={0.8}
+    >
+      {icon ? (
+        <Feather name={icon as any} size={13} color={active ? COLORS.textInverse : COLORS.textSecondary} style={{ marginRight: 4 }} />
+      ) : null}
+      <Text style={[styles.chipTxt, active && { color: COLORS.textInverse }]}>{label}</Text>
+    </TouchableOpacity>
+  );
+
+  const AmountBtn = ({ val }: { val: number }) => (
+    <TouchableOpacity
+      style={[styles.amtBtn, amountNum === val && styles.amtBtnActive]}
+      onPress={() => setAmountRaw(val.toString())}
+    >
+      <Text style={[styles.amtBtnTxt, amountNum === val && { color: COLORS.primary }]}>
+        {val >= 1000 ? val / 1000 + "K" : val.toString()}
+      </Text>
+    </TouchableOpacity>
+  );
+
+  const renderCard = (item: CardResult, rank: number) => {
+    const c = getCardColor(item.index, item.card.color);
+    const isBest = rank === 0;
+    return (
+      <View key={item.card.id} style={[styles.resultCard, isBest && { borderWidth: 2, borderColor: COLORS.success }]}>
+        {isBest && (
+          <View style={styles.bestBadge}>
+            <Feather name="star" size={11} color={COLORS.textInverse} />
+            <Text style={styles.bestBadgeTxt}>Best Pick</Text>
           </View>
         )}
-        <FlatList
-          data={results}
-          renderItem={renderResult}
-          keyExtractor={(item) => item.cardId}
-          style={styles.list}
-          contentContainerStyle={{ paddingBottom: 48 }}
-          scrollEnabled={false}
-        />
-        <View style={styles.bottomSpacer} />
+        <View style={[styles.cardAccentBar, { backgroundColor: c }]} />
+        <View style={styles.resultCardContent}>
+          <View style={styles.resultTop}>
+            <View>
+              <Text style={styles.cardName}>{item.card.name}</Text>
+              {item.card.lastFourDigits ? (
+                <Text style={styles.cardDigits}>•••• {item.card.lastFourDigits}</Text>
+              ) : null}
+            </View>
+            <View style={styles.rankCircle}>
+              <Text style={styles.rankTxt}>#{rank + 1}</Text>
+            </View>
+          </View>
+
+          <View style={styles.resultStats}>
+            <View style={styles.resultStat}>
+              <Text style={[styles.statVal, { color: COLORS.success }]}>
+                {item.cashback > 0 ? formatAmount(item.cashback, settings.currency) : "—"}
+              </Text>
+              <Text style={styles.statLbl}>Cashback</Text>
+            </View>
+            <View style={styles.resultStat}>
+              <Text style={[styles.statVal, { color: COLORS.primary }]}>
+                {formatAmount(item.available, settings.currency)}
+              </Text>
+              <Text style={styles.statLbl}>Available</Text>
+            </View>
+            <View style={styles.resultStat}>
+              <Text style={[styles.statVal, { color: item.utilization > 80 ? COLORS.danger : item.utilization > 50 ? COLORS.warning : COLORS.text }]}>
+                {item.utilization.toFixed(0)}%
+              </Text>
+              <Text style={styles.statLbl}>Used</Text>
+            </View>
+          </View>
+
+          <View style={styles.utilBar}>
+            <ProgressBar label="" filled={item.utilization} total={100} height={6} />
+          </View>
+
+          {item.reasons.length > 0 && (
+            <View style={styles.reasonRow}>
+              <Feather name="info" size={12} color={COLORS.textMuted} />
+              <Text style={styles.reasonTxt}>{item.reasons.join(" · ")}</Text>
+            </View>
+          )}
+        </View>
+      </View>
+    );
+  };
+
+  return (
+    <SafeAreaView style={styles.safe} edges={["top"]}>
+      <StatusBar barStyle="dark-content" backgroundColor={COLORS.background} />
+
+      {/* Header */}
+      <View style={styles.topBar}>
+        <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backBtn}>
+          <Feather name="arrow-left" size={22} color={COLORS.text} />
+        </TouchableOpacity>
+        <View>
+          <Text style={styles.screenTitle}>Best Fit Card</Text>
+          <Text style={styles.screenSub}>Find the optimal card for your spend</Text>
+        </View>
+      </View>
+
+      <ScrollView contentContainerStyle={styles.container} showsVerticalScrollIndicator={false}>
+        {/* Amount selector */}
+        <View style={styles.section}>
+          <Text style={styles.sectionTitle}>Spend Amount</Text>
+          <View style={styles.amtPresets}>
+            {[500, 1000, 2000, 5000, 10000].map((v) => <AmountBtn key={v} val={v} />)}
+          </View>
+          <TouchableOpacity
+            style={styles.customAmtBtn}
+            onPress={() => {
+              setCustomInputValue(amount);
+              setShowCustom((v) => !v);
+            }}
+          >
+            <Feather name="edit-2" size={13} color={COLORS.primary} style={{ marginRight: 4 }} />
+            <Text style={[styles.chipTxt, { color: COLORS.primary }]}>
+              {showCustom ? "Hide Custom" : `Custom: ${formatAmount(amountNum, settings.currency)}`}
+            </Text>
+          </TouchableOpacity>
+          {showCustom && (
+            <View style={styles.customInputRow}>
+              <TextInput
+                style={styles.customInput}
+                keyboardType="numeric"
+                value={customInputValue}
+                onChangeText={setCustomInputValue}
+                placeholder="Enter amount…"
+                placeholderTextColor={COLORS.textMuted}
+                autoFocus
+              />
+              <TouchableOpacity
+                style={styles.customConfirmBtn}
+                onPress={() => {
+                  if (customInputValue && Number(customInputValue) > 0) {
+                    setAmountRaw(customInputValue);
+                    setShowCustom(false);
+                  }
+                }}
+              >
+                <Feather name="check" size={18} color={COLORS.textInverse} />
+              </TouchableOpacity>
+            </View>
+          )}
+        </View>
+
+        {/* Category */}
+        <View style={styles.section}>
+          <Text style={styles.sectionTitle}>Category</Text>
+          <View style={styles.chipRow}>
+            {allCategories.map((cat) => (
+              <Chip
+                key={cat.name}
+                label={cat.name}
+                icon={getCategoryIconFull(cat.name, categories)}
+                active={cat.name === category}
+                onPress={() => setCategory(cat.name)}
+              />
+            ))}
+          </View>
+        </View>
+
+        {/* Online / Offline */}
+        <View style={styles.section}>
+          <Text style={styles.sectionTitle}>Payment Mode</Text>
+          <View style={styles.chipRow}>
+            <Chip label="Online" active={isOnline} onPress={() => setIsOnline(true)} />
+            <Chip label="In Store" active={!isOnline} onPress={() => setIsOnline(false)} />
+          </View>
+        </View>
+
+        {/* Results */}
+        {cards.length === 0 ? (
+          <View style={styles.emptyBox}>
+            <Feather name="credit-card" size={32} color={COLORS.textMuted} />
+            <Text style={styles.emptyTxt}>No cards added yet.</Text>
+          </View>
+        ) : results.length === 0 ? (
+          <View style={styles.emptyBox}>
+            <Feather name="alert-circle" size={32} color={COLORS.warning} />
+            <Text style={styles.emptyTxt}>No card has enough available credit for this amount.</Text>
+            <Text style={styles.emptySubTxt}>Try a smaller amount or pay off your balance first.</Text>
+          </View>
+        ) : (
+          <>
+            <Text style={styles.resultsTitle}>
+              {results.length} card{results.length > 1 ? "s" : ""} available
+            </Text>
+            {results.map((r, i) => renderCard(r, i))}
+          </>
+        )}
+
+        {/* Cards with insufficient credit */}
+        {unfitCards.length > 0 && (
+          <>
+            <Text style={[styles.resultsTitle, { color: COLORS.textMuted, marginTop: SPACING.sm }]}>
+              Insufficient credit ({unfitCards.length})
+            </Text>
+            {unfitCards.map((r) => (
+              <View key={r.card.id} style={[styles.resultCard, { opacity: 0.5 }]}>
+                <View style={[styles.cardAccentBar, { backgroundColor: getCardColor(r.index, r.card.color) }]} />
+                <View style={styles.resultCardContent}>
+                  <View style={styles.resultTop}>
+                    <Text style={styles.cardName}>{r.card.name}</Text>
+                    <View style={[styles.rankCircle, { backgroundColor: COLORS.dangerLight }]}>
+                      <Feather name="x" size={14} color={COLORS.danger} />
+                    </View>
+                  </View>
+                  <Text style={styles.unavailTxt}>
+                    Only {formatAmount(r.available, settings.currency)} available
+                  </Text>
+                </View>
+              </View>
+            ))}
+          </>
+        )}
+
+        <View style={{ height: SPACING.xl }} />
       </ScrollView>
     </SafeAreaView>
   );
 };
 
 const styles = StyleSheet.create({
-  safeContainer: {
-    flex: 1,
-    backgroundColor: "#F0F4F8",
-  },
-  container: {
-    flex: 1,
-    padding: 16,
-  },
-  header: {
-    fontFamily: "Inter_700Bold",
-    fontSize: 24,
-    color: "#1A1A1A",
-    marginBottom: 16,
-  },
-  label: {
-    fontFamily: "Inter_600SemiBold",
-    fontSize: 14,
-    color: "#1A1A1A",
-    marginBottom: 8,
-  },
-  instruction: {
-    fontFamily: "Inter_400Regular",
-    fontSize: 14,
-    color: "#666666",
-    marginBottom: 8,
-  },
-  warning: {
-    fontFamily: "Inter_700Bold",
-    fontSize: 14,
-    color: "#D32F2F",
-    marginBottom: 16,
-  },
-  input: {
-    backgroundColor: "#FFFFFF",
-    borderRadius: 8,
-    padding: 12,
-    marginBottom: 12,
-    fontFamily: "Inter_400Regular",
-    fontSize: 16,
-    color: "#1A1A1A",
-    borderWidth: 1,
-    borderColor: "#E0E0E0",
-  },
-  toggle: {
+  safe: { flex: 1, backgroundColor: COLORS.background },
+  topBar: {
     flexDirection: "row",
-    marginBottom: 12,
-  },
-  toggleButton: {
-    flex: 1,
-    padding: 12,
-    backgroundColor: "#E0E0E0",
-    borderRadius: 8,
     alignItems: "center",
-    marginHorizontal: 4,
+    paddingHorizontal: SPACING.md,
+    paddingVertical: SPACING.sm,
+    gap: SPACING.sm,
+    backgroundColor: COLORS.background,
   },
-  toggleActive: {
-    backgroundColor: "#1976D2",
-  },
-  toggleText: {
-    fontFamily: "Inter_700Bold",
-    fontSize: 16,
-    color: "#FFFFFF",
-  },
-  checkButton: {
-    backgroundColor: "#FBC02D",
-    borderRadius: 8,
-    padding: 16,
+  backBtn: {
+    width: 36,
+    height: 36,
+    borderRadius: RADIUS.full,
+    backgroundColor: COLORS.surface,
     alignItems: "center",
-    marginBottom: 16,
+    justifyContent: "center",
+    ...SHADOWS.xs,
   },
-  checkButtonText: {
-    fontFamily: "Inter_700Bold",
-    fontSize: 16,
-    color: "#FFFFFF",
+  screenTitle: { ...TYPOGRAPHY.h3 },
+  screenSub: { ...TYPOGRAPHY.caption, marginTop: 1 },
+  container: { padding: SPACING.md },
+
+  section: {
+    backgroundColor: COLORS.surface,
+    borderRadius: RADIUS.lg,
+    padding: SPACING.md,
+    marginBottom: SPACING.sm,
+    ...SHADOWS.sm,
   },
-  bestCardContainer: {
-    backgroundColor: "#E8F5E9",
-    borderRadius: 8,
-    padding: 12,
-    marginBottom: 16,
-  },
-  bestCardText: {
-    fontFamily: "Inter_700Bold",
-    fontSize: 16,
-    color: "#388E3C",
-  },
-  list: {
-    marginBottom: 16,
-  },
-  resultCard: {
-    backgroundColor: "#FFFFFF",
-    borderRadius: 8,
-    padding: 12,
-    marginBottom: 8,
-    shadowColor: "#000",
-    shadowOpacity: 0.1,
-    shadowRadius: 4,
-    elevation: 2,
-  },
-  bestCard: {
-    backgroundColor: "#E8F5E9",
-  },
-  resultText: {
-    fontFamily: "Inter_400Regular",
-    fontSize: 14,
-    color: "#4A4A4A",
-    marginBottom: 4,
-  },
-  bottomSpacer: {
-    height: 20,
-  },
-  pickerContainer: {
-    backgroundColor: "#FFFFFF",
-    borderRadius: 8,
-    marginBottom: 12,
+  sectionTitle: { ...TYPOGRAPHY.h4, marginBottom: SPACING.sm },
+  chipRow: { flexDirection: "row", flexWrap: "wrap", gap: SPACING.xs },
+  chip: {
+    flexDirection: "row",
+    alignItems: "center",
+    borderRadius: RADIUS.full,
+    paddingHorizontal: SPACING.md,
+    paddingVertical: 6,
     borderWidth: 1,
-    borderColor: "#E0E0E0",
+    borderColor: COLORS.border,
+    backgroundColor: COLORS.background,
+    marginBottom: 2,
+  },
+  chipTxt: { ...TYPOGRAPHY.caption },
+  amtPresets: { flexDirection: "row", flexWrap: "wrap", gap: SPACING.xs, marginBottom: SPACING.sm },
+  amtBtn: {
+    borderRadius: RADIUS.md,
+    paddingHorizontal: SPACING.md,
+    paddingVertical: 8,
+    backgroundColor: COLORS.background,
+    borderWidth: 1,
+    borderColor: COLORS.border,
+  },
+  amtBtnActive: { backgroundColor: COLORS.primaryLight, borderColor: COLORS.primary },
+  amtBtnTxt: { ...TYPOGRAPHY.bodyBold, fontSize: 13 },
+  customAmtBtn: {
+    flexDirection: "row",
+    alignItems: "center",
+    borderRadius: RADIUS.md,
+    paddingHorizontal: SPACING.md,
+    paddingVertical: 8,
+    backgroundColor: COLORS.primaryLight,
+    alignSelf: "flex-start",
+  },
+  customInputRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: SPACING.sm,
+    marginTop: SPACING.sm,
+  },
+  customInput: {
+    flex: 1,
+    ...TYPOGRAPHY.body,
+    backgroundColor: COLORS.background,
+    borderRadius: RADIUS.md,
+    paddingHorizontal: SPACING.md,
+    paddingVertical: SPACING.sm,
+    borderWidth: 1,
+    borderColor: COLORS.primary,
+  },
+  customConfirmBtn: {
+    width: 40,
+    height: 40,
+    borderRadius: RADIUS.md,
+    backgroundColor: COLORS.primary,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+
+  resultsTitle: { ...TYPOGRAPHY.h4, marginBottom: SPACING.sm, marginTop: SPACING.xs },
+  resultCard: {
+    backgroundColor: COLORS.surface,
+    borderRadius: RADIUS.lg,
+    marginBottom: SPACING.sm,
+    flexDirection: "row",
     overflow: "hidden",
+    ...SHADOWS.sm,
   },
-  picker: {
-    fontFamily: "Inter_400Regular",
-    fontSize: 16,
-    color: "#1A1A1A",
+  bestBadge: {
+    position: "absolute",
+    top: SPACING.sm,
+    right: SPACING.sm,
+    backgroundColor: COLORS.success,
+    borderRadius: RADIUS.full,
+    flexDirection: "row",
+    alignItems: "center",
+    paddingHorizontal: SPACING.sm,
+    paddingVertical: 3,
+    gap: 3,
+    zIndex: 10,
   },
+  bestBadgeTxt: { ...TYPOGRAPHY.micro, color: COLORS.textInverse, fontWeight: "700" },
+  cardAccentBar: { width: 5 },
+  resultCardContent: { flex: 1, padding: SPACING.md },
+  resultTop: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "flex-start",
+    marginBottom: SPACING.sm,
+  },
+  cardName: { ...TYPOGRAPHY.bodyBold },
+  cardDigits: { ...TYPOGRAPHY.micro, color: COLORS.textMuted, marginTop: 1 },
+  rankCircle: {
+    width: 28,
+    height: 28,
+    borderRadius: RADIUS.full,
+    backgroundColor: COLORS.primaryLight,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  rankTxt: { ...TYPOGRAPHY.caption, color: COLORS.primary, fontWeight: "700" },
+  resultStats: { flexDirection: "row", marginBottom: SPACING.sm },
+  resultStat: { flex: 1 },
+  statVal: { ...TYPOGRAPHY.bodyBold, fontSize: 13 },
+  statLbl: { ...TYPOGRAPHY.micro, marginTop: 1 },
+  utilBar: { marginBottom: SPACING.xs },
+  reasonRow: { flexDirection: "row", alignItems: "center", gap: 4, marginTop: 2 },
+  reasonTxt: { ...TYPOGRAPHY.micro, flex: 1, flexWrap: "wrap" },
+  unavailTxt: { ...TYPOGRAPHY.caption, color: COLORS.danger },
+
+  emptyBox: {
+    alignItems: "center",
+    paddingVertical: SPACING.xl,
+    backgroundColor: COLORS.surface,
+    borderRadius: RADIUS.lg,
+    gap: SPACING.sm,
+    ...SHADOWS.sm,
+  },
+  emptyTxt: { ...TYPOGRAPHY.bodyBold, color: COLORS.textSecondary },
+  emptySubTxt: { ...TYPOGRAPHY.caption, textAlign: "center", paddingHorizontal: SPACING.lg },
 });
 
 export default BestFitCardScreen;
+

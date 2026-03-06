@@ -1,37 +1,49 @@
 import React from "react";
 import { View, Text, StyleSheet } from "react-native";
+import { COLORS, TYPOGRAPHY, SPACING, RADIUS } from "../theme/theme";
 
 interface ProgressBarProps {
   label: string;
   filled: number;
   total: number;
-  color: string; // You can keep this prop if you still want a default color or use it for something else, but it's not strictly needed for the dynamic fill color
+  color?: string;
+  showPercentage?: boolean;
+  height?: number;
 }
 
 const ProgressBar: React.FC<ProgressBarProps> = ({
   label,
   filled,
   total,
-  color, // You can still receive this prop
+  color,
+  showPercentage = false,
+  height = 8,
 }) => {
-  const percentage = total > 0 ? (filled / total) * 100 : 0;
+  const safeTotal = total > 0 ? total : 1;
+  const percentage = Math.min(100, (filled / safeTotal) * 100);
 
-  let filledColor = "#388E3C"; // Default to green (low usage)
-
-  if (percentage > 50 && percentage <= 80) {
-    filledColor = "#FBC02D"; // Yellow for medium usage
-  } else if (percentage > 80) {
-    filledColor = "#D32F2F"; // Red for high usage
+  // Dynamic color if none provided
+  let barColor = color ?? COLORS.success;
+  if (!color) {
+    if (percentage > 80) barColor = COLORS.danger;
+    else if (percentage > 50) barColor = COLORS.warning;
   }
 
   return (
     <View style={styles.container}>
-      <Text style={styles.label}>{label}</Text>
-      <View style={styles.bar}>
+      <View style={styles.labelRow}>
+        <Text style={styles.label}>{label}</Text>
+        {showPercentage && (
+          <Text style={[styles.pct, { color: barColor }]}>
+            {percentage.toFixed(0)}%
+          </Text>
+        )}
+      </View>
+      <View style={[styles.track, { height }]}>
         <View
           style={[
-            styles.filled,
-            { width: `${percentage}%`, backgroundColor: filledColor }, // Use filledColor
+            styles.fill,
+            { width: `${percentage}%`, backgroundColor: barColor, height },
           ]}
         />
       </View>
@@ -41,24 +53,30 @@ const ProgressBar: React.FC<ProgressBarProps> = ({
 
 const styles = StyleSheet.create({
   container: {
-    marginVertical: 8,
+    marginTop: SPACING.sm,
   },
-  label: {
-    fontFamily: "Inter_400Regular",
-    fontSize: 14,
-    color: "#1A1A1A",
+  labelRow: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
     marginBottom: 4,
   },
-  bar: {
-    height: 12,
-    backgroundColor: "#E0E0E0",
-    borderRadius: 6,
+  label: {
+    ...TYPOGRAPHY.caption,
+    color: COLORS.textSecondary,
+  },
+  pct: {
+    ...TYPOGRAPHY.captionBold,
+  },
+  track: {
+    backgroundColor: COLORS.border,
+    borderRadius: RADIUS.full,
     overflow: "hidden",
   },
-  filled: {
-    height: "100%",
-    borderRadius: 6,
+  fill: {
+    borderRadius: RADIUS.full,
   },
 });
 
 export default ProgressBar;
+
