@@ -1,0 +1,5 @@
+{
+  "latest_version": "1.0.0",
+  "update_message": "🎉 Initial Release\n\nWelcome to DueSense - Your Personal Credit Card Manager!\n\n✨ Features:\n• Manage multiple credit cards with custom billing cycles\n• Track spending across all your cards\n• Calculate cashback automatically\n• Monitor credit limits with visual progress\n• Get reminders for due dates and EMI payments\n• Track money you spent for others\n• Find the best card for purchases\n• Generate detailed transaction reports\n• Complete privacy - all data stored locally\n\nStart managing your credit cards smarter today!",
+  "apk_url": "https://github.com/MorningAppLabs/DueSense/releases/download/v1.0.0/DueSense-v1.0.0.apk"
+}
